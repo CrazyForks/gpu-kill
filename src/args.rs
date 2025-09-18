@@ -7,7 +7,7 @@ use crate::vendor::GpuVendor;
     name = "gpukill",
     version = env!("CARGO_PKG_VERSION"),
     about = "GPU management and monitoring CLI tool",
-    long_about = "gpukill provides comprehensive GPU monitoring, process management, and device control capabilities using NVIDIA's NVML library."
+    long_about = "gpukill provides comprehensive GPU monitoring, process management, and device control capabilities for NVIDIA, AMD, and Intel GPUs."
 )]
 pub struct Cli {
     /// Log level for debugging and diagnostics
@@ -29,6 +29,10 @@ pub struct Cli {
     /// Reset GPU(s)
     #[arg(long)]
     pub reset: bool,
+
+    /// Show GPU usage audit history
+    #[arg(long)]
+    pub audit: bool,
 
     /// Show detailed per-process information
     #[arg(long)]
@@ -77,6 +81,22 @@ pub struct Cli {
     /// Show container information for processes
     #[arg(long, requires = "list")]
     pub containers: bool,
+
+    /// Filter audit by user name
+    #[arg(long, requires = "audit")]
+    pub audit_user: Option<String>,
+
+    /// Filter audit by process name pattern
+    #[arg(long, requires = "audit")]
+    pub audit_process: Option<String>,
+
+    /// Show audit for last N hours
+    #[arg(long, requires = "audit", default_value = "24")]
+    pub audit_hours: u32,
+
+    /// Show audit summary (top users/processes)
+    #[arg(long, requires = "audit")]
+    pub audit_summary: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -93,6 +113,7 @@ pub enum VendorFilter {
     Nvidia,
     Amd,
     Intel,
+    Apple,
     All,
 }
 
@@ -102,6 +123,7 @@ impl VendorFilter {
             VendorFilter::Nvidia => Some(GpuVendor::Nvidia),
             VendorFilter::Amd => Some(GpuVendor::Amd),
             VendorFilter::Intel => Some(GpuVendor::Intel),
+            VendorFilter::Apple => Some(GpuVendor::Apple),
             VendorFilter::All => None,
         }
     }
@@ -145,13 +167,13 @@ impl Cli {
     /// Validate argument combinations
     fn validate(&self) {
         // Check that exactly one operation is specified
-        let operation_count = [self.list, self.kill, self.reset].iter().filter(|&&x| x).count();
+        let operation_count = [self.list, self.kill, self.reset, self.audit].iter().filter(|&&x| x).count();
         if operation_count == 0 {
-            eprintln!("Error: Exactly one of --list, --kill, or --reset must be specified");
+            eprintln!("Error: Exactly one of --list, --kill, --reset, or --audit must be specified");
             std::process::exit(3);
         }
         if operation_count > 1 {
-            eprintln!("Error: Only one of --list, --kill, or --reset can be specified");
+            eprintln!("Error: Only one of --list, --kill, --reset, or --audit can be specified");
             std::process::exit(3);
         }
 

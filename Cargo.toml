@@ -3,10 +3,10 @@ name = "gpukill"
 version = "0.1.0"
 edition = "2021"
 authors = ["Your Name <your.email@example.com>"]
-description = "A production-ready CLI tool for GPU management and monitoring"
+description = "A production-ready CLI tool for GPU management and monitoring supporting NVIDIA, AMD, Intel, and Apple Silicon GPUs"
 license = "MIT"
-repository = "https://github.com/yourusername/gpukill"
-keywords = ["gpu", "nvidia", "nvml", "cli", "monitoring"]
+repository = "https://github.com/kagehq/gpu-kill"
+keywords = ["gpu", "nvidia", "amd", "intel", "apple", "metal", "nvml", "rocm", "cli", "monitoring"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
@@ -33,6 +33,12 @@ toml = "0.8"
 dirs = "5.0"
 regex = "1.10"
 glob = "0.3"
+
+# Apple Silicon GPU support
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
+core-foundation-sys = "0.8"
+io-kit-sys = "0.2"
 
 [dev-dependencies]
 tempfile = "3.0"

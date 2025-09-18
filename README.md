@@ -1,6 +1,6 @@
 # GPU Kill
 
-A lightweight CLI tool for managing NVIDIA, AMD, and Intel GPUs. List, monitor, and control GPU processes with ease.
+A lightweight CLI tool for managing NVIDIA, AMD, Intel, and Apple Silicon GPUs. List, monitor, and control GPU processes with ease.
 
 ## What it does
 
@@ -8,22 +8,27 @@ A lightweight CLI tool for managing NVIDIA, AMD, and Intel GPUs. List, monitor, 
 - **⚡ Kill**: Gracefully terminate GPU processes (with force option)
 - **🔄 Reset**: Reset individual GPUs or all GPUs
 - **👀 Watch**: Real-time monitoring with auto-refresh
-- **📋 Export**: JSON output for scripting and automation
 - **🎯 Filter**: Advanced process filtering and batch operations
-- **🐳 Containers**: Container-aware process detection
-- **🔧 Multi-Vendor**: Support for NVIDIA, AMD, and Intel GPUs
+- **📈 Audit**: Track GPU usage history and generate usage reports
+- **🔧 Multi-Vendor**: Support for NVIDIA, AMD, Intel, and Apple Silicon GPUs
 
 ## Requirements
 
-- NVIDIA GPU with drivers installed (for NVIDIA support)
-- AMD GPU with ROCm installed (for AMD support)
-- Intel GPU with intel-gpu-tools installed (for Intel support)
-- Linux, macOS, or Windows
+- **NVIDIA**: NVIDIA drivers installed
+- **AMD**: ROCm drivers installed  
+- **Intel**: intel-gpu-tools package installed
+- **Apple Silicon**: macOS with Apple Silicon (M1/M2/M3/M4)
+- **OS**: Linux, macOS, or Windows
 
 ## Quick Start
 
 ```bash
-# Install
+### Build from Source
+git clone <repository-url>
+cd gpu-kill
+cargo build --release
+
+# Install from Cargo
 cargo install gpukill
 
 # List your GPUs
@@ -37,35 +42,6 @@ gpukill --kill --pid 12345
 
 # Reset a GPU
 gpukill --reset --gpu 0
-```
-
-## Basic Usage
-
-### List GPUs
-```bash
-gpukill --list                    # Basic info
-gpukill --list --details          # Show all processes
-gpukill --list --watch            # Auto-refresh every 2s
-gpukill --list --output json      # JSON format
-gpukill --list --vendor nvidia    # Filter by vendor
-gpukill --list --vendor intel     # Intel GPUs only
-gpukill --list --containers       # Show container info
-```
-
-### Kill Processes
-```bash
-gpukill --kill --pid 12345        # Graceful kill (5s timeout)
-gpukill --kill --pid 12345 --force # Force kill after timeout
-gpukill --kill --pid 12345 --timeout-secs 10  # Custom timeout
-gpukill --kill --filter "python.*" # Kill by pattern
-gpukill --kill --filter "python.*" --batch # Batch kill
-```
-
-### Reset GPUs
-```bash
-gpukill --reset --gpu 0           # Reset GPU 0
-gpukill --reset --all             # Reset all GPUs
-gpukill --reset --gpu 0 --force   # Force reset (ignores active processes)
 ```
 
 ## Common Examples
@@ -85,19 +61,12 @@ gpukill --kill --pid 12345 --force
 gpukill --kill --filter "python.*" --batch --force
 ```
 
-**Monitor only NVIDIA GPUs:**
+**Monitor specific GPU vendor:**
 ```bash
 gpukill --list --vendor nvidia --watch
-```
-
-**Monitor only Intel GPUs:**
-```bash
+gpukill --list --vendor amd --watch
 gpukill --list --vendor intel --watch
-```
-
-**Check containerized processes:**
-```bash
-gpukill --list --containers --details
+gpukill --list --vendor apple --watch
 ```
 
 **Reset crashed GPU:**
@@ -110,33 +79,34 @@ gpukill --reset --gpu 0 --force
 gpukill --list --output json > gpu_stats.json
 ```
 
+**View GPU usage history:**
+```bash
+gpukill --audit                           # Show last 24 hours
+gpukill --audit --audit-hours 6          # Show last 6 hours
+gpukill --audit --audit-summary          # Show usage summary
+```
+
+**Filter audit by user or process:**
+```bash
+gpukill --audit --audit-user john        # Show only john's usage
+gpukill --audit --audit-process python   # Show only Python processes
+```
 
 ## Troubleshooting
 
-**"NVML initialization failed"**
-- Make sure NVIDIA drivers are installed
-- Try running with `sudo` if needed
-- Check `nvidia-smi` works
-
-**"AMD ROCm not installed"**
-- Install ROCm drivers for AMD GPU support
-- Check `rocm-smi` works
-
-**"Intel GPU tools not available"**
-- Install intel-gpu-tools package for Intel GPU support
-- Check `intel_gpu_top` works
+**"No GPU vendors available"**
+- Install drivers for your GPU vendor (NVIDIA, AMD, Intel, or Apple Silicon)
+- Check `nvidia-smi`, `rocm-smi`, `intel_gpu_top`, or system_profiler works
 
 **"Permission denied"**
-- Some operations need elevated privileges
 - Try `sudo gpukill --list` first
 
 **"GPU not found"**
 - Check GPU index with `gpukill --list`
-- Verify GPU is properly connected
 
-**"No GPU vendors available"**
-- Ensure at least one GPU vendor (NVIDIA, AMD, or Intel) is properly installed
-- Check driver installation and GPU connectivity
+**"No audit records found"**
+- Run `gpukill --list` first to generate audit data
+- Check audit data directory: `~/.local/share/gpukill/` (Linux) or `~/Library/Application Support/gpukill/` (macOS)
 
 ## Get Help
 
@@ -152,7 +122,6 @@ For advanced configuration, detailed API documentation, and developer informatio
 ## License
 
 FSL-1.1-MIT License - see [LICENSE](LICENSE) for details.
-
 
 ## Contributing
 

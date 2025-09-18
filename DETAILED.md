@@ -6,27 +6,29 @@
 - [Installation](#installation)
 - [Command Reference](#command-reference)
 - [Enhanced Features](#enhanced-features)
+- [Audit System](#audit-system)
 - [Output Formats](#output-formats)
 - [Configuration](#configuration)
 - [Safety Features](#safety-features)
 - [Exit Codes](#exit-codes)
-- [API Reference](#api-reference)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
-- [Contributing](#contributing)
 
 ## Architecture
 
-GPU Kill is built with Rust and supports both NVIDIA and AMD GPUs through vendor-specific interfaces. The tool is designed with safety, usability, and multi-vendor support in mind.
+GPU Kill is built with Rust and supports NVIDIA, AMD, Intel, and Apple Silicon GPUs through vendor-specific interfaces. The tool is designed with safety, usability, and multi-vendor support in mind.
 
 ### Core Components
 
 - **CLI Parser**: Uses `clap` for robust argument parsing and validation
-- **Vendor Abstraction**: Multi-vendor GPU support (NVIDIA, AMD)
+- **Vendor Abstraction**: Multi-vendor GPU support (NVIDIA, AMD, Intel, Apple Silicon)
 - **NVML Wrapper**: Interfaces with NVIDIA's management library
 - **ROCm Interface**: AMD GPU management via rocm-smi
+- **Intel GPU Tools**: Intel GPU management via intel_gpu_top
+- **Apple Silicon Interface**: Apple Silicon GPU management via system_profiler and system APIs
 - **Enhanced Process Manager**: Advanced process filtering and batch operations
 - **Container Detection**: Container-aware process management
+- **Audit System**: Automatic GPU usage tracking and historical analysis
 - **Renderer**: Formats output as tables or JSON
 - **Configuration**: Supports file and environment-based configuration
 
@@ -38,6 +40,9 @@ GPU Kill is built with Rust and supports both NVIDIA and AMD GPUs through vendor
 - `regex`: Process filtering with regex patterns
 - `tabled`: Table formatting
 - `serde`: JSON serialization
+- `serde_json`: JSON parsing and generation
+- `chrono`: Date and time handling for audit timestamps
+- `dirs`: Cross-platform data directory management
 - `tracing`: Structured logging
 - `color-eyre`: Error handling
 
@@ -51,6 +56,12 @@ GPU Kill is built with Rust and supports both NVIDIA and AMD GPUs through vendor
 - **AMD GPU Support**:
   - AMD GPU with ROCm drivers installed
   - rocm-smi command-line tool available
+- **Intel GPU Support**:
+  - Intel GPU with intel-gpu-tools package installed
+  - intel_gpu_top command-line tool available
+- **Apple Silicon GPU Support**:
+  - macOS with Apple Silicon (M1, M2, M3, M4)
+  - system_profiler command-line tool available
 - **General Requirements**:
   - Rust 1.70+ (for building from source)
   - Linux, macOS, or Windows
@@ -80,6 +91,7 @@ cargo build --release --target x86_64-unknown-linux-gnu
 # For Windows from Linux
 cargo build --release --target x86_64-pc-windows-gnu
 ```
+
 
 ## Command Reference
 
@@ -124,26 +136,34 @@ gpukill --list --details --watch --output json
 ### Kill Operation
 
 ```bash
-gpukill --kill --pid <PID> [OPTIONS]
+gpukill --kill (--pid <PID> | --filter <PATTERN>) [OPTIONS]
 ```
 
-**Required:**
+**Required (one of):**
 - `--pid <PID>`: Process ID to terminate
+- `--filter <PATTERN>`: Filter processes by name pattern (supports regex)
 
 **Options:**
 - `--timeout-secs <SECONDS>`: Timeout before escalation (default: 5)
 - `--force`: Escalate to SIGKILL after timeout
+- `--batch`: Kill multiple processes matching the filter (requires `--filter`)
 
 **Examples:**
 ```bash
-# Graceful termination
+# Graceful termination of a single process
 gpukill --kill --pid 12345
 
-# Custom timeout
+# Custom timeout for a single process
 gpukill --kill --pid 12345 --timeout-secs 10
 
-# Force escalation
+# Force escalation for a single process
 gpukill --kill --pid 12345 --force
+
+# Kill processes matching a pattern
+gpukill --kill --filter "python.*"
+
+# Batch kill all processes matching a pattern
+gpukill --kill --filter "python.*" --batch --force
 ```
 
 ### Reset Operation
@@ -171,138 +191,300 @@ gpukill --reset --all
 gpukill --reset --gpu 0 --force
 ```
 
-## Enhanced Features
-
-### Multi-Vendor GPU Support
-
-GPU Kill automatically detects and supports both NVIDIA and AMD GPUs:
+### Audit Operation
 
 ```bash
-# List all GPUs (NVIDIA and AMD)
-gpukill --list
+gpukill --audit [OPTIONS]
+```
 
-# Filter by vendor
+**Options:**
+- `--audit-user <USER>`: Filter by specific user
+- `--audit-process <PATTERN>`: Filter by process name pattern
+- `--audit-hours <HOURS>`: Show records from last N hours (default: 24)
+- `--audit-summary`: Show summary statistics instead of detailed records
+- `--output <FORMAT>`: Output format (`table` or `json`)
+
+**Examples:**
+```bash
+# Show last 24 hours of GPU usage
+gpukill --audit
+
+# Show last 6 hours
+gpukill --audit --audit-hours 6
+
+# Show usage summary
+gpukill --audit --audit-summary
+
+# Filter by user
+gpukill --audit --audit-user john
+
+# Filter by process
+gpukill --audit --audit-process python
+
+# Combine filters
+gpukill --audit --audit-user alice --audit-process tensorflow --audit-hours 12
+
+# JSON output
+gpukill --audit --output json
+
+# Export filtered data
+gpukill --audit --audit-user john --output json > john_usage.json
+```
+
+## Enhanced Features
+
+### Multi-Vendor Support
+
+`gpukill` automatically detects and utilizes available GPU vendors (NVIDIA, AMD, Intel). You can also filter the displayed information by vendor.
+
+**Options:**
+- `--vendor <VENDOR>`: Filter by GPU vendor.
+  - `nvidia`: Show only NVIDIA GPUs.
+  - `amd`: Show only AMD GPUs.
+  - `intel`: Show only Intel GPUs.
+  - `all`: Show all detected GPUs (default if `--vendor` is not specified).
+
+**Examples:**
+```bash
+# List only NVIDIA GPUs
 gpukill --list --vendor nvidia
-gpukill --list --vendor amd
-gpukill --list --vendor all
 
-# Check available vendors
-gpukill --list --vendor all --details
+# List only AMD GPUs with details
+gpukill --list --vendor amd --details
+
+# List only Intel GPUs
+gpukill --list --vendor intel
+
+# Monitor all GPUs in watch mode
+gpukill --list --vendor all --watch
 ```
 
 **Vendor Detection:**
 - **NVIDIA**: Automatically detected if NVML is available
 - **AMD**: Automatically detected if rocm-smi is available
-- **Mixed Systems**: Supports systems with both NVIDIA and AMD GPUs
+- **Intel**: Automatically detected if intel_gpu_top is available
+- **Apple Silicon**: Automatically detected if running on macOS with Apple Silicon
+- **Mixed Systems**: Supports systems with multiple GPU vendors
 
-### Advanced Process Management
+### Advanced Process Filtering
 
-#### Process Filtering
+The `--kill` command now supports filtering processes by name using regular expressions, enabling powerful batch operations.
 
-Filter processes by name using regex patterns:
+**Options:**
+- `--filter <PATTERN>`: A regular expression pattern to match against process names.
+- `--batch`: When used with `--filter`, all matching processes will be targeted for termination. Without `--batch`, `gpukill` will list matching processes and warn you to use `--batch` to proceed with killing.
 
+**Examples:**
 ```bash
-# Kill processes by pattern
-gpukill --kill --filter "python.*"
-gpukill --kill --filter "tensorflow.*"
-gpukill --kill --filter "pytorch.*"
+# List processes matching "python" (case-sensitive)
+gpukill --list --details --filter "python"
 
-# Batch operations
-gpukill --kill --filter "python.*" --batch
-gpukill --kill --filter "python.*" --batch --force
+# Kill all processes whose names start with "tensor"
+gpukill --kill --filter "^tensor" --batch --force
+
+# Find and kill all processes related to "jupyter"
+gpukill --kill --filter "jupyter" --batch
 ```
 
-**Filter Examples:**
-- `"python.*"` - All Python processes
-- `"tensorflow.*"` - All TensorFlow processes
-- `"pytorch.*"` - All PyTorch processes
-- `".*train.*"` - Processes with "train" in the name
-- `"^python$"` - Exact match for "python"
+### Container-Aware Process Detection
 
-#### Container Detection
+`gpukill` can now attempt to identify if a process is running within a container environment.
 
-Detect and display container information for processes:
+**Options:**
+- `--containers`: When used with `--list`, an additional column or field will indicate if a process is running in a container (e.g., Docker, LXC, Kubernetes).
 
+**Examples:**
 ```bash
-# Show container information
-gpukill --list --containers
-gpukill --list --containers --details
+# List GPUs and show container info for processes
+gpukill --list --details --containers
 
-# Monitor containerized processes
-gpukill --list --containers --watch
+# Watch containerized processes on NVIDIA GPUs
+gpukill --list --watch --containers --vendor nvidia
 ```
 
-**Supported Containers:**
-- Docker
-- Podman
-- Kubernetes
-- LXC
-- Generic container environments
+### Apple Silicon Specific Features
 
-#### Batch Process Operations
-
-Efficiently manage multiple processes:
+Apple Silicon GPUs use unified memory architecture, which provides unique capabilities:
 
 ```bash
-# Preview processes matching filter
-gpukill --kill --filter "python.*"
+# Monitor Apple Silicon GPU
+gpukill --list --vendor apple
 
-# Batch kill with confirmation
-gpukill --kill --filter "python.*" --batch
+# Monitor with details
+gpukill --list --vendor apple --details
 
-# Force batch kill
-gpukill --kill --filter "python.*" --batch --force
+# Watch Apple Silicon GPU usage
+gpukill --list --vendor apple --watch
 ```
 
-### Enhanced Kill Operations
+**Apple Silicon Characteristics:**
+- **Unified Memory**: GPU and CPU share the same memory pool
+- **Memory Estimation**: GPU memory usage is estimated from active system memory
+- **Process Detection**: Identifies Metal, OpenGL, and ML framework processes
+- **No Temperature/Power**: These metrics are not available via system APIs
+- **No Reset Support**: GPU reset requires kernel-level operations
 
-#### Process Tree Killing
+## Audit System
 
-Kill parent processes and all their children:
+The audit system automatically tracks GPU usage history whenever you run `gpukill --list`. This provides valuable insights into GPU utilization patterns, resource planning, and troubleshooting.
 
+### How It Works
+
+**Automatic Data Collection:**
+- Every `gpukill --list` command automatically logs GPU usage data
+- Data is stored in JSON Lines format for easy processing
+- No additional configuration required - works out of the box
+
+**Data Storage:**
+- **Linux**: `~/.local/share/gpukill/audit.jsonl`
+- **macOS**: `~/Library/Application Support/gpukill/audit.jsonl`
+- **Windows**: `%APPDATA%\gpukill\audit.jsonl`
+
+**Data Captured:**
+- Timestamp of each GPU check
+- GPU information (index, name, memory usage, utilization, temperature, power)
+- Process information (when processes are using GPU)
+- Container information (when available)
+- User information (when processes are detected)
+
+### Audit Commands
+
+**Basic Audit Queries:**
 ```bash
-# Kill process tree (parent + children)
-gpukill --kill --pid 12345 --tree
+# Show last 24 hours of GPU usage
+gpukill --audit
 
-# Force kill process tree
-gpukill --kill --pid 12345 --tree --force
+# Show last 6 hours
+gpukill --audit --audit-hours 6
+
+# Show last 3 days
+gpukill --audit --audit-hours 72
 ```
 
-#### Memory-Based Filtering
-
-Filter processes by memory usage:
-
+**Filtered Queries:**
 ```bash
-# Kill processes using more than 1GB
-gpukill --kill --filter ".*" --memory-min 1024 --batch
+# Show only specific user's GPU usage
+gpukill --audit --audit-user john
 
-# Kill processes using more than 2GB
-gpukill --kill --filter ".*" --memory-min 2048 --batch --force
+# Show only specific process types
+gpukill --audit --audit-process python
+gpukill --audit --audit-process tensorflow
+
+# Combine filters
+gpukill --audit --audit-user alice --audit-process pytorch --audit-hours 12
 ```
 
-### Advanced Monitoring
-
-#### Vendor-Specific Monitoring
-
+**Summary Reports:**
 ```bash
-# Monitor only NVIDIA GPUs
-gpukill --list --vendor nvidia --watch
+# Get usage summary for last 24 hours
+gpukill --audit --audit-summary
 
-# Monitor only AMD GPUs
-gpukill --list --vendor amd --watch
-
-# Compare vendors
-gpukill --list --vendor all --details
+# Get summary for last week
+gpukill --audit --audit-summary --audit-hours 168
 ```
 
-#### Container-Aware Monitoring
-
+**JSON Output:**
 ```bash
-# Monitor with container information
-gpukill --list --containers --watch
+# Export audit data as JSON for external processing
+gpukill --audit --output json
 
-# Export container information
-gpukill --list --containers --output json > containers.json
+# Export filtered data
+gpukill --audit --audit-user john --output json > john_gpu_usage.json
+```
+
+### Audit Data Structure
+
+Each audit record contains:
+
+```json
+{
+  "id": 1758236888745,
+  "timestamp": "2025-09-18T23:08:08.745114Z",
+  "gpu_index": 0,
+  "gpu_name": "Apple M3 Max",
+  "pid": null,
+  "user": null,
+  "process_name": null,
+  "memory_used_mb": 3216,
+  "utilization_pct": 0.0,
+  "temperature_c": 0,
+  "power_w": 0.0,
+  "container": null
+}
+```
+
+**Field Descriptions:**
+- `id`: Unique identifier (timestamp + process ID)
+- `timestamp`: ISO 8601 timestamp of the measurement
+- `gpu_index`: GPU device index
+- `gpu_name`: Human-readable GPU name
+- `pid`: Process ID (null for GPU-level records)
+- `user`: Username (null for GPU-level records)
+- `process_name`: Process name (null for GPU-level records)
+- `memory_used_mb`: Memory usage in megabytes
+- `utilization_pct`: GPU utilization percentage
+- `temperature_c`: GPU temperature in Celsius
+- `power_w`: GPU power consumption in watts
+- `container`: Container name (null if not in container)
+
+### Use Cases
+
+**Resource Planning:**
+```bash
+# Analyze peak usage patterns
+gpukill --audit --audit-summary --audit-hours 168
+
+# Find heavy users
+gpukill --audit --audit-summary | grep "Top Users"
+```
+
+**Troubleshooting:**
+```bash
+# Check what was running when GPU crashed
+gpukill --audit --audit-hours 1
+
+# Find processes that used most memory
+gpukill --audit --audit-summary | grep "Top Processes"
+```
+
+**Compliance and Billing:**
+```bash
+# Generate usage report for specific user
+gpukill --audit --audit-user alice --output json > alice_usage.json
+
+# Export all data for analysis
+gpukill --audit --output json > gpu_usage_export.json
+```
+
+**Performance Analysis:**
+```bash
+# Check hourly usage patterns
+gpukill --audit --audit-summary --audit-hours 24
+
+# Monitor specific application usage
+gpukill --audit --audit-process tensorflow --audit-hours 48
+```
+
+### Data Management
+
+**File Size:**
+- Each audit record is approximately 200-300 bytes
+- 1000 records ≈ 250KB
+- 10,000 records ≈ 2.5MB
+- Automatic cleanup recommended for long-term usage
+
+**Retention:**
+- No automatic cleanup by default
+- Manual cleanup: Delete old records from `audit.jsonl`
+- Recommended: Keep 30-90 days of data depending on needs
+
+**Backup:**
+```bash
+# Backup audit data
+cp ~/.local/share/gpukill/audit.jsonl gpu_audit_backup.jsonl
+
+# Restore audit data
+cp gpu_audit_backup.jsonl ~/.local/share/gpukill/audit.jsonl
 ```
 
 ## Output Formats
@@ -468,80 +650,6 @@ show_details = false
 | `4` | Permission Error | Insufficient permissions for operation |
 | `5` | Unsupported Operation | Operation not supported on this system |
 
-## API Reference
-
-### Data Structures
-
-#### GpuInfo
-```rust
-pub struct GpuInfo {
-    pub index: u16,
-    pub name: String,
-    pub mem_total_mb: u32,
-}
-```
-
-#### GpuProc
-```rust
-pub struct GpuProc {
-    pub gpu_index: u16,
-    pub pid: u32,
-    pub user: String,
-    pub proc_name: String,
-    pub used_mem_mb: u32,
-    pub start_time: String,
-    pub container: Option<String>,
-}
-```
-
-#### GpuSnapshot
-```rust
-pub struct GpuSnapshot {
-    pub gpu_index: u16,
-    pub name: String,
-    pub mem_used_mb: u32,
-    pub mem_total_mb: u32,
-    pub util_pct: f32,
-    pub temp_c: i32,
-    pub power_w: f32,
-    pub ecc_volatile: Option<u64>,
-    pub pids: usize,
-    pub top_proc: Option<GpuProc>,
-}
-```
-
-#### Snapshot
-```rust
-pub struct Snapshot {
-    pub host: String,
-    pub ts: String,
-    pub gpus: Vec<GpuSnapshot>,
-    pub procs: Vec<GpuProc>,
-}
-```
-
-### Core Functions
-
-#### NvmlApi
-```rust
-impl NvmlApi {
-    pub fn new() -> Result<Self>;
-    pub fn device_count(&self) -> Result<u32>;
-    pub fn create_snapshot(&self) -> Result<Snapshot>;
-    pub fn reset_gpu(&self, index: u32) -> Result<()>;
-}
-```
-
-#### ProcessManager
-```rust
-impl ProcessManager {
-    pub fn new(nvml_api: NvmlApi) -> Self;
-    pub fn get_process_info(&mut self, pid: u32) -> Result<ProcessInfo>;
-    pub fn is_process_using_gpu(&self, pid: u32) -> Result<bool>;
-    pub fn graceful_kill(&self, pid: u32, timeout_secs: u16, force: bool) -> Result<()>;
-}
-```
-
 ## Troubleshooting
 
 ### Common Issues
@@ -560,6 +668,14 @@ impl ProcessManager {
     - Ensure `rocm-smi` is accessible from your terminal
     - Check if you have the necessary permissions to access AMD GPU information
 
+#### Intel GPU tools not available
+- **Cause**: Intel GPU tools are not installed, or `intel_gpu_top` is not in your PATH.
+- **Solution**:
+    - Install intel-gpu-tools package for Intel GPU support
+    - Ensure `intel_gpu_top` is accessible from your terminal
+    - Check if you have the necessary permissions to access Intel GPU information
+
+
 #### Permission Denied
 - **Cause**: The current user does not have the necessary privileges to perform the requested action (e.g., killing a process owned by another user, resetting a GPU).
 - **Solution**:
@@ -572,10 +688,10 @@ impl ProcessManager {
 - **Solution**:
     - Use `gpukill --list` to see available GPU indices.
     - Ensure your GPU is physically connected and powered on.
-    - Verify that your NVIDIA/AMD drivers are correctly installed and recognize the GPU.
+    - Verify that your GPU drivers are correctly installed and recognize the GPU.
 
 #### No GPU vendors available
-- **Cause**: Neither NVIDIA NVML nor AMD ROCm could be initialized or found on the system.
+- **Cause**: No supported GPU vendors (NVIDIA, AMD, Intel, or Apple Silicon) could be initialized or found on the system.
 - **Solution**:
     - Ensure at least one supported GPU vendor's drivers and management tools are correctly installed.
     - Check system logs for driver-related errors.
@@ -637,25 +753,6 @@ cargo test --test integration_tests
 cargo test --features mock_nvml
 ```
 
-### Code Structure
-
-```
-src/
-├── main.rs          # Entry point and operation dispatch
-├── args.rs          # CLI argument parsing and validation
-├── nvml_api.rs      # NVML wrapper and GPU data structures
-├── vendor.rs        # Multi-vendor GPU support
-├── process_mgmt.rs  # Enhanced process management
-├── proc.rs          # Process management and killing
-├── render.rs        # Table and JSON rendering
-├── config.rs        # Configuration management
-├── util.rs          # Utility functions
-├── version.rs       # Version information
-└── lib.rs           # Library exports for testing
-
-tests/
-└── integration_tests.rs  # CLI integration tests
-```
 
 ### Adding New Features
 
@@ -676,6 +773,8 @@ tests/
 
 - Built with [NVML Wrapper](https://github.com/Cldfire/nvml-wrapper) for NVIDIA GPU management
 - AMD GPU support via [ROCm](https://rocm.docs.amd.com/) and rocm-smi
+- Intel GPU support via [intel-gpu-tools](https://gitlab.freedesktop.org/drm/igt-gpu-tools) and intel_gpu_top
+- Apple Silicon GPU support via macOS system_profiler and system APIs
 - Uses [Clap](https://github.com/clap-rs/clap) for command-line argument parsing
 - Table rendering powered by [Tabled](https://github.com/zhiburt/tabled)
 - Error handling with [Color Eyre](https://github.com/yaahc/color-eyre)

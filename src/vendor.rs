@@ -8,6 +8,7 @@ pub enum GpuVendor {
     Nvidia,
     Amd,
     Intel,
+    Apple,
     Unknown,
 }
 
@@ -17,6 +18,7 @@ impl std::fmt::Display for GpuVendor {
             GpuVendor::Nvidia => write!(f, "NVIDIA"),
             GpuVendor::Amd => write!(f, "AMD"),
             GpuVendor::Intel => write!(f, "Intel"),
+            GpuVendor::Apple => write!(f, "Apple"),
             GpuVendor::Unknown => write!(f, "Unknown"),
         }
     }
@@ -571,6 +573,267 @@ impl GpuVendorInterface for IntelVendor {
     }
 }
 
+/// Apple Silicon GPU vendor implementation using system_profiler and IOKit
+#[cfg(target_os = "macos")]
+pub struct AppleVendor {
+    // Apple Silicon GPU management via system APIs
+    gpu_info: Option<GpuInfo>,
+}
+
+#[cfg(target_os = "macos")]
+impl GpuVendorInterface for AppleVendor {
+    fn initialize() -> Result<Self> {
+        // Check if we're on Apple Silicon
+        if !Self::is_available() {
+            return Err(anyhow::anyhow!("{}", Self::get_availability_error()));
+        }
+
+        // Get initial GPU info
+        let gpu_info = Self::get_system_gpu_info()?;
+        
+        Ok(Self {
+            gpu_info: Some(gpu_info),
+        })
+    }
+
+    fn vendor_type(&self) -> GpuVendor {
+        GpuVendor::Apple
+    }
+
+    fn device_count(&self) -> Result<u32> {
+        // Apple Silicon typically has one unified GPU
+        Ok(1)
+    }
+
+    fn get_gpu_info(&self, index: u32) -> Result<GpuInfo> {
+        if index > 0 {
+            return Err(anyhow::anyhow!("Apple Silicon only supports GPU index 0"));
+        }
+        
+        if let Some(ref info) = self.gpu_info {
+            Ok(info.clone())
+        } else {
+            Self::get_system_gpu_info()
+        }
+    }
+
+    fn get_gpu_snapshot(&self, index: u32) -> Result<GpuSnapshot> {
+        if index > 0 {
+            return Err(anyhow::anyhow!("Apple Silicon only supports GPU index 0"));
+        }
+
+        let gpu_info = self.get_gpu_info(index)?;
+        
+        // Get memory usage from vm_stat
+        let mem_used_mb = Self::get_gpu_memory_usage()?;
+        
+        // Get processes using Metal/GPU
+        let processes = self.get_gpu_processes(index)?;
+        let pids = processes.len();
+        let top_proc = processes.into_iter().max_by_key(|p| p.used_mem_mb);
+
+        Ok(GpuSnapshot {
+            gpu_index: index as u16,
+            name: gpu_info.name,
+            mem_used_mb,
+            mem_total_mb: gpu_info.mem_total_mb,
+            util_pct: 0.0, // Not easily available on Apple Silicon
+            temp_c: 0, // Not available via system APIs
+            power_w: 0.0, // Not available via system APIs
+            ecc_volatile: None, // Not applicable to Apple Silicon
+            pids,
+            top_proc,
+        })
+    }
+
+    fn get_gpu_processes(&self, _index: u32) -> Result<Vec<GpuProc>> {
+        // Find processes that might be using Metal/GPU
+        let output = std::process::Command::new("ps")
+            .args(&["-axo", "pid,user,comm,%mem"])
+            .output()
+            .map_err(|e| anyhow::anyhow!("Failed to run ps: {}", e))?;
+
+        if !output.status.success() {
+            return Ok(Vec::new());
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut processes = Vec::new();
+
+        for line in stdout.lines().skip(1) { // Skip header
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 4 {
+                if let (Ok(pid), user, comm, mem_str) = (
+                    parts[0].parse::<u32>(),
+                    parts[1],
+                    parts[2],
+                    parts[3],
+                ) {
+                    // Check if this process might be using GPU
+                    if Self::is_gpu_process(comm) {
+                        let mem_mb = Self::parse_memory_usage(mem_str, user)?;
+                        
+                        processes.push(GpuProc {
+                            gpu_index: 0,
+                            pid,
+                            user: user.to_string(),
+                            proc_name: comm.to_string(),
+                            used_mem_mb: mem_mb,
+                            start_time: "unknown".to_string(), // Would need more complex parsing
+                            container: None,
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(processes)
+    }
+
+    fn reset_gpu(&self, _index: u32) -> Result<()> {
+        // Apple Silicon GPU reset is not directly supported via system APIs
+        // This would require kernel-level operations
+        Err(anyhow::anyhow!("Apple Silicon GPU reset not supported via system APIs"))
+    }
+
+    fn is_available() -> bool {
+        // Check if we're on macOS and have Apple Silicon
+        if !cfg!(target_os = "macos") {
+            return false;
+        }
+
+        // Check for Apple Silicon by looking for Apple chip in system profiler
+        let output = std::process::Command::new("system_profiler")
+            .args(&["SPHardwareDataType"])
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                return stdout.contains("Apple") && (stdout.contains("M1") || stdout.contains("M2") || stdout.contains("M3") || stdout.contains("M4"));
+            }
+        }
+
+        false
+    }
+
+    fn get_availability_error() -> String {
+        "Apple Silicon GPU not available. This feature requires macOS with Apple Silicon (M1/M2/M3/M4).".to_string()
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl AppleVendor {
+    /// Get GPU information from system_profiler
+    fn get_system_gpu_info() -> Result<GpuInfo> {
+        let output = std::process::Command::new("system_profiler")
+            .args(&["SPDisplaysDataType"])
+            .output()
+            .map_err(|e| anyhow::anyhow!("Failed to run system_profiler: {}", e))?;
+
+        if !output.status.success() {
+            return Err(anyhow::anyhow!("system_profiler failed"));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        
+        // Parse GPU name and memory
+        let mut name = "Apple Silicon GPU".to_string();
+        let mut mem_total_mb = 8192; // Default fallback
+
+        for line in stdout.lines() {
+            if line.contains("Chipset Model:") {
+                if let Some(chipset) = line.split("Chipset Model:").nth(1) {
+                    name = chipset.trim().to_string();
+                }
+            }
+        }
+
+        // Get total memory from system
+        let mem_output = std::process::Command::new("system_profiler")
+            .args(&["SPHardwareDataType"])
+            .output()
+            .map_err(|e| anyhow::anyhow!("Failed to get memory info: {}", e))?;
+
+        if mem_output.status.success() {
+            let mem_stdout = String::from_utf8_lossy(&mem_output.stdout);
+            for line in mem_stdout.lines() {
+                if line.contains("Memory:") {
+                    if let Some(mem_str) = line.split("Memory:").nth(1) {
+                        let mem_str = mem_str.trim();
+                        if let Some(gb_str) = mem_str.split_whitespace().next() {
+                            if let Ok(gb) = gb_str.parse::<u32>() {
+                                mem_total_mb = gb * 1024; // Convert GB to MB
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(GpuInfo {
+            index: 0,
+            name,
+            mem_total_mb,
+        })
+    }
+
+    /// Get GPU memory usage from vm_stat
+    fn get_gpu_memory_usage() -> Result<u32> {
+        let output = std::process::Command::new("vm_stat")
+            .output()
+            .map_err(|e| anyhow::anyhow!("Failed to run vm_stat: {}", e))?;
+
+        if !output.status.success() {
+            return Ok(0);
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let page_size = 16384; // Apple Silicon uses 16KB pages
+
+        // Parse active memory (which includes GPU memory on unified architecture)
+        for line in stdout.lines() {
+            if line.contains("Pages active:") {
+                if let Some(pages_str) = line.split("Pages active:").nth(1) {
+                    if let Some(pages) = pages_str.trim().split('.').next() {
+                        if let Ok(pages) = pages.parse::<u64>() {
+                            // Estimate GPU memory usage as a portion of active memory
+                            // This is a rough approximation since Apple Silicon uses unified memory
+                            let total_active_mb = (pages * page_size) / (1024 * 1024);
+                            return Ok((total_active_mb / 4) as u32); // Assume 25% is GPU-related
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(0)
+    }
+
+    /// Check if a process is likely using GPU
+    fn is_gpu_process(comm: &str) -> bool {
+        let gpu_keywords = [
+            "Metal", "OpenGL", "CoreAnimation", "Quartz", "WindowServer",
+            "python", "tensorflow", "pytorch", "jupyter", "matplotlib",
+            "ffmpeg", "blender", "unity", "unreal", "xcode", "simulator",
+        ];
+
+        gpu_keywords.iter().any(|&keyword| comm.to_lowercase().contains(keyword))
+    }
+
+    /// Parse memory usage from ps output
+    fn parse_memory_usage(mem_str: &str, _user: &str) -> Result<u32> {
+        // Parse percentage and convert to MB (rough approximation)
+        if let Ok(percent) = mem_str.parse::<f32>() {
+            // Rough conversion: assume system has 32GB, so 1% = ~320MB
+            Ok((percent * 320.0) as u32)
+        } else {
+            Ok(0)
+        }
+    }
+}
+
 /// Multi-vendor GPU manager
 pub struct GpuManager {
     vendors: Vec<Box<dyn GpuVendorInterface + Send + Sync>>,
@@ -620,9 +883,23 @@ impl GpuManager {
             }
         }
 
+        // Try to initialize Apple Silicon (macOS only)
+        #[cfg(target_os = "macos")]
+        if AppleVendor::is_available() {
+            match AppleVendor::initialize() {
+                Ok(apple) => {
+                    tracing::info!("Apple Silicon GPU support initialized");
+                    vendors.push(Box::new(apple));
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to initialize Apple Silicon support: {}", e);
+                }
+            }
+        }
+
         if vendors.is_empty() {
             return Err(anyhow::anyhow!(
-                "No GPU vendors available. Please install NVIDIA, AMD, or Intel GPU drivers."
+                "No GPU vendors available. Please install NVIDIA, AMD, Intel, or Apple Silicon GPU drivers."
             ));
         }
 

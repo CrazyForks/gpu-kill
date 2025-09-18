@@ -13,6 +13,7 @@ use std::time::Duration;
 use tracing::{error, info, warn};
 
 mod args;
+mod audit;
 mod config;
 mod nvml_api;
 mod proc;
@@ -38,8 +39,12 @@ fn main() -> Result<()> {
 
     info!("Starting gpukill {}", get_version_string());
 
-    // Execute the requested operation
-    match execute_operation(cli, config_manager) {
+        // Execute the requested operation
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to create tokio runtime: {}", e))?;
+        match rt.block_on(execute_operation(cli, config_manager)) {
         Ok(()) => {
             info!("Operation completed successfully");
             Ok(())
@@ -82,7 +87,7 @@ fn init_logging(log_level: &str) -> Result<()> {
 }
 
 /// Execute the requested operation
-fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManager) -> Result<()> {
+async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManager) -> Result<()> {
     // Initialize GPU manager
     let gpu_manager = GpuManager::initialize()
         .context("Failed to initialize GPU manager")?;
@@ -96,7 +101,7 @@ fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManager) -> 
             cli.containers,
             gpu_manager,
             config_manager
-        )
+        ).await
     } else if cli.kill {
         execute_kill_operation(
             cli.pid,
@@ -109,13 +114,21 @@ fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManager) -> 
         )
     } else if cli.reset {
         execute_reset_operation(cli.gpu, cli.all, cli.force, gpu_manager, config_manager)
+    } else if cli.audit {
+        execute_audit_operation(
+            cli.audit_user,
+            cli.audit_process,
+            cli.audit_hours,
+            cli.audit_summary,
+            cli.output,
+        ).await
     } else {
         Err(anyhow::anyhow!("No operation specified"))
     }
 }
 
 /// Execute list operation
-fn execute_list_operation(
+async fn execute_list_operation(
     details: bool,
     watch: bool,
     output: OutputFormat,
@@ -127,14 +140,14 @@ fn execute_list_operation(
     let renderer = Renderer::new(output);
 
     if watch {
-        execute_watch_mode(details, containers, vendor_filter, renderer, gpu_manager, config_manager)
+        execute_watch_mode(details, containers, vendor_filter, renderer, gpu_manager, config_manager).await
     } else {
-        execute_single_list(details, containers, &vendor_filter, &renderer, &gpu_manager)
+        execute_single_list(details, containers, &vendor_filter, &renderer, &gpu_manager).await
     }
 }
 
 /// Execute single list operation
-fn execute_single_list(
+async fn execute_single_list(
     details: bool,
     containers: bool,
     vendor_filter: &Option<VendorFilter>,
@@ -155,6 +168,7 @@ fn execute_single_list(
                     GpuVendor::Nvidia => gpu.name.contains("NVIDIA") || gpu.name.contains("GeForce") || gpu.name.contains("Tesla") || gpu.name.contains("Quadro"),
                     GpuVendor::Amd => gpu.name.contains("AMD") || gpu.name.contains("Radeon"),
                     GpuVendor::Intel => gpu.name.contains("Intel"),
+                    GpuVendor::Apple => gpu.name.contains("Apple") || gpu.name.contains("M1") || gpu.name.contains("M2") || gpu.name.contains("M3") || gpu.name.contains("M4"),
                     _ => true,
                 }
             });
@@ -177,20 +191,39 @@ fn execute_single_list(
         procs = enhanced_manager.enrich_with_containers(procs)?;
     }
     
-    // Create snapshot
+    // Create snapshot for rendering
     let snapshot = Snapshot {
         host: crate::util::get_hostname(),
         ts: crate::util::get_current_timestamp_iso(),
-        gpus,
-        procs,
+        gpus: gpus.clone(),
+        procs: procs.clone(),
     };
+
+    // Log to audit database (async)
+    // Now that execute_single_list is async, we can directly log to audit
+    match crate::audit::AuditManager::new().await {
+        Ok(audit_manager) => {
+            match audit_manager.log_snapshot(&gpus, &procs).await {
+                Ok(()) => {
+                    tracing::debug!("Successfully logged audit snapshot with {} GPUs and {} processes", 
+                        gpus.len(), procs.len());
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to log audit snapshot: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to initialize audit manager: {}", e);
+        }
+    }
 
     renderer.render_snapshot(&snapshot, details).map_err(|e| anyhow::anyhow!("Render error: {}", e))?;
     Ok(())
 }
 
 /// Execute watch mode
-fn execute_watch_mode(
+async fn execute_watch_mode(
     details: bool,
     containers: bool,
     vendor_filter: Option<VendorFilter>,
@@ -204,7 +237,7 @@ fn execute_watch_mode(
           config_manager.config().watch_interval_secs);
 
     loop {
-        match execute_single_list(details, containers, &vendor_filter, &renderer, &gpu_manager) {
+        match execute_single_list(details, containers, &vendor_filter, &renderer, &gpu_manager).await {
             Ok(()) => {
                 if matches!(renderer.get_output_format(), OutputFormat::Table) {
                     renderer.clear_screen();
@@ -215,7 +248,7 @@ fn execute_watch_mode(
             }
         }
 
-        thread::sleep(interval);
+        tokio::time::sleep(tokio::time::Duration::from_secs(config_manager.config().watch_interval_secs)).await;
     }
 }
 
@@ -387,6 +420,116 @@ fn execute_reset_single_gpu(
     // Reset the GPU
     gpu_manager.reset_gpu(gpu_id as u32)?;
     render_success(&format!("GPU {} reset successfully", gpu_id));
+
+    Ok(())
+}
+
+/// Execute audit operation
+async fn execute_audit_operation(
+    user_filter: Option<String>,
+    process_filter: Option<String>,
+    hours: u32,
+    summary: bool,
+    output_format: crate::args::OutputFormat,
+) -> Result<()> {
+    use gpukill::audit::AuditManager;
+    use crate::render::{render_info, render_warning};
+
+    // Initialize audit manager
+    let audit_manager = AuditManager::new().await
+        .context("Failed to initialize audit manager")?;
+
+    if summary {
+        // Show audit summary
+        let summary = audit_manager.get_summary(hours).await
+            .context("Failed to get audit summary")?;
+
+        render_info(&format!("GPU Usage Audit Summary (Last {} hours)", hours));
+        render_info(&format!("Total records: {}", summary.total_records));
+
+        if !summary.top_users.is_empty() {
+            render_info("\nTop Users by Memory Usage:");
+            for (i, (user, count, memory_mb)) in summary.top_users.iter().enumerate() {
+                render_info(&format!("  {}. {}: {} records, {} MB total", 
+                    i + 1, user, count, memory_mb));
+            }
+        }
+
+        if !summary.top_processes.is_empty() {
+            render_info("\nTop Processes by Memory Usage:");
+            for (i, (process, count, memory_mb)) in summary.top_processes.iter().enumerate() {
+                render_info(&format!("  {}. {}: {} records, {} MB total", 
+                    i + 1, process, count, memory_mb));
+            }
+        }
+
+        render_info("\nHourly GPU Memory Usage:");
+        for (hour, avg_memory) in &summary.gpu_usage_by_hour {
+            render_info(&format!("  Hour {}: {} MB average", hour, avg_memory));
+        }
+
+    } else {
+        // Show detailed audit records
+        let records = audit_manager.query_records(
+            hours,
+            user_filter.as_deref(),
+            process_filter.as_deref(),
+        ).await
+        .context("Failed to query audit records")?;
+
+        if records.is_empty() {
+            render_warning(&format!("No audit records found for the last {} hours", hours));
+            if user_filter.is_some() || process_filter.is_some() {
+                render_info("Try removing filters to see all records");
+            }
+            return Ok(());
+        }
+
+        render_info(&format!("Found {} audit records (Last {} hours)", records.len(), hours));
+
+        if output_format == crate::args::OutputFormat::Json {
+            // JSON output
+            let json = serde_json::to_string_pretty(&records)
+                .context("Failed to serialize audit records to JSON")?;
+            println!("{}", json);
+        } else {
+            // Table output
+            use tabled::{Table, Tabled};
+
+            #[derive(Tabled)]
+            struct AuditTableRow {
+                #[tabled(rename = "Time")]
+                time: String,
+                #[tabled(rename = "GPU")]
+                gpu: String,
+                #[tabled(rename = "PID")]
+                pid: String,
+                #[tabled(rename = "User")]
+                user: String,
+                #[tabled(rename = "Process")]
+                process: String,
+                #[tabled(rename = "Memory (MB)")]
+                memory: u32,
+                #[tabled(rename = "Container")]
+                container: String,
+            }
+
+            let table_rows: Vec<AuditTableRow> = records.iter().map(|record| {
+                AuditTableRow {
+                    time: record.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    gpu: format!("{} ({})", record.gpu_index, record.gpu_name),
+                    pid: record.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string()),
+                    user: record.user.clone().unwrap_or_else(|| "-".to_string()),
+                    process: record.process_name.clone().unwrap_or_else(|| "-".to_string()),
+                    memory: record.memory_used_mb,
+                    container: record.container.clone().unwrap_or_else(|| "-".to_string()),
+                }
+            }).collect();
+
+            let table = Table::new(table_rows);
+            println!("{}", table);
+        }
+    }
 
     Ok(())
 }
