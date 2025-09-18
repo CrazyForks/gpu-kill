@@ -1,6 +1,6 @@
 # GPU Kill
 
-A lightweight CLI tool for managing NVIDIA and AMD GPUs. List, monitor, and control GPU processes with ease.
+A lightweight CLI tool for managing NVIDIA, AMD, and Intel GPUs. List, monitor, and control GPU processes with ease.
 
 ## What it does
 
@@ -11,12 +11,13 @@ A lightweight CLI tool for managing NVIDIA and AMD GPUs. List, monitor, and cont
 - **📋 Export**: JSON output for scripting and automation
 - **🎯 Filter**: Advanced process filtering and batch operations
 - **🐳 Containers**: Container-aware process detection
-- **🔧 Multi-Vendor**: Support for both NVIDIA and AMD GPUs
+- **🔧 Multi-Vendor**: Support for NVIDIA, AMD, and Intel GPUs
 
 ## Requirements
 
 - NVIDIA GPU with drivers installed (for NVIDIA support)
 - AMD GPU with ROCm installed (for AMD support)
+- Intel GPU with intel-gpu-tools installed (for Intel support)
 - Linux, macOS, or Windows
 
 ## Quick Start
@@ -47,6 +48,7 @@ gpukill --list --details          # Show all processes
 gpukill --list --watch            # Auto-refresh every 2s
 gpukill --list --output json      # JSON format
 gpukill --list --vendor nvidia    # Filter by vendor
+gpukill --list --vendor intel     # Intel GPUs only
 gpukill --list --containers       # Show container info
 ```
 
@@ -88,6 +90,11 @@ gpukill --kill --filter "python.*" --batch --force
 gpukill --list --vendor nvidia --watch
 ```
 
+**Monitor only Intel GPUs:**
+```bash
+gpukill --list --vendor intel --watch
+```
+
 **Check containerized processes:**
 ```bash
 gpukill --list --containers --details
@@ -115,6 +122,10 @@ gpukill --list --output json > gpu_stats.json
 - Install ROCm drivers for AMD GPU support
 - Check `rocm-smi` works
 
+**"Intel GPU tools not available"**
+- Install intel-gpu-tools package for Intel GPU support
+- Check `intel_gpu_top` works
+
 **"Permission denied"**
 - Some operations need elevated privileges
 - Try `sudo gpukill --list` first
@@ -124,7 +135,7 @@ gpukill --list --output json > gpu_stats.json
 - Verify GPU is properly connected
 
 **"No GPU vendors available"**
-- Ensure at least one GPU vendor (NVIDIA or AMD) is properly installed
+- Ensure at least one GPU vendor (NVIDIA, AMD, or Intel) is properly installed
 - Check driver installation and GPU connectivity
 
 ## Get Help

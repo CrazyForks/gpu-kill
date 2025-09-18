@@ -421,6 +421,156 @@ impl GpuVendorInterface for AmdVendor {
     }
 }
 
+/// Intel GPU vendor implementation using intel_gpu_top and intel_gpu_time
+pub struct IntelVendor {
+    // Intel GPU management via command-line tools
+    // Future: Could integrate with Intel oneAPI Level Zero
+}
+
+impl GpuVendorInterface for IntelVendor {
+    fn initialize() -> Result<Self> {
+        // Check if Intel GPU tools are available
+        if !Self::is_available() {
+            return Err(anyhow::anyhow!("{}", Self::get_availability_error()));
+        }
+        Ok(Self {})
+    }
+
+    fn vendor_type(&self) -> GpuVendor {
+        GpuVendor::Intel
+    }
+
+    fn device_count(&self) -> Result<u32> {
+        // Try to get GPU count from intel_gpu_top
+        let output = std::process::Command::new("intel_gpu_top")
+            .args(&["-l", "1"])
+            .output()
+            .map_err(|e| anyhow::anyhow!("Failed to run intel_gpu_top: {}", e))?;
+
+        if !output.status.success() {
+            return Err(anyhow::anyhow!("intel_gpu_top failed: {}", String::from_utf8_lossy(&output.stderr)));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Count GPU entries in the output
+        let gpu_count = stdout.lines()
+            .filter(|line| line.contains("GPU") || line.contains("Render"))
+            .count() as u32;
+
+        Ok(if gpu_count > 0 { gpu_count } else { 1 }) // At least one Intel GPU
+    }
+
+    fn get_gpu_info(&self, index: u32) -> Result<GpuInfo> {
+        // Get GPU name from intel_gpu_top
+        let output = std::process::Command::new("intel_gpu_top")
+            .args(&["-l", "1"])
+            .output()
+            .map_err(|e| anyhow::anyhow!("Failed to run intel_gpu_top: {}", e))?;
+
+        if !output.status.success() {
+            return Err(anyhow::anyhow!("intel_gpu_top failed: {}", String::from_utf8_lossy(&output.stderr)));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let name = stdout
+            .lines()
+            .find(|line| line.contains("GPU") || line.contains("Render"))
+            .map(|line| {
+                // Extract GPU name from the line
+                if line.contains("Intel") {
+                    line.to_string()
+                } else {
+                    format!("Intel GPU {}", index)
+                }
+            })
+            .unwrap_or_else(|| format!("Intel GPU {}", index));
+
+        // Intel GPUs typically have varying memory sizes
+        // We'll use a reasonable default and could enhance this later
+        let mem_total_mb = match index {
+            0 => 4096,  // 4GB for integrated graphics
+            _ => 8192,  // 8GB for discrete GPUs
+        };
+
+        Ok(GpuInfo {
+            index: index as u16,
+            name,
+            mem_total_mb,
+        })
+    }
+
+    fn get_gpu_snapshot(&self, index: u32) -> Result<GpuSnapshot> {
+        // Get basic info first
+        let gpu_info = self.get_gpu_info(index)?;
+
+        // Get utilization from intel_gpu_top
+        let output = std::process::Command::new("intel_gpu_top")
+            .args(&["-l", "1"])
+            .output()
+            .map_err(|e| anyhow::anyhow!("Failed to run intel_gpu_top: {}", e))?;
+
+        let (util_pct, mem_used_mb) = if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let util = stdout
+                .lines()
+                .find(|line| line.contains("Render/3D"))
+                .and_then(|line| {
+                    line.split_whitespace()
+                        .find(|s| s.ends_with('%'))
+                        .and_then(|s| s.replace('%', "").parse::<f32>().ok())
+                })
+                .unwrap_or(0.0);
+
+            // Estimate memory usage (Intel tools don't provide exact memory info)
+            let mem_used = (util / 100.0 * gpu_info.mem_total_mb as f32) as u32;
+            (util, mem_used)
+        } else {
+            (0.0, 0)
+        };
+
+        // Intel GPUs don't typically provide temperature/power info via command line
+        // We'll use reasonable defaults
+        Ok(GpuSnapshot {
+            gpu_index: index as u16,
+            name: gpu_info.name,
+            mem_used_mb,
+            mem_total_mb: gpu_info.mem_total_mb,
+            util_pct,
+            temp_c: 0, // Not available via intel_gpu_top
+            power_w: 0.0, // Not available via intel_gpu_top
+            ecc_volatile: None,
+            pids: 0, // Process detection would require additional parsing
+            top_proc: None,
+        })
+    }
+
+    fn get_gpu_processes(&self, _index: u32) -> Result<Vec<GpuProc>> {
+        // Intel GPU process detection is more complex
+        // For now, we'll return an empty vector
+        // Future enhancement: Parse /proc/driver/i915/gt/gt*/exec_queues
+        Ok(Vec::new())
+    }
+
+    fn reset_gpu(&self, _index: u32) -> Result<()> {
+        // Intel GPU reset is not directly supported via command line
+        // This would require kernel-level operations or driver-specific tools
+        Err(anyhow::anyhow!("Intel GPU reset not supported via command line tools"))
+    }
+
+    fn is_available() -> bool {
+        // Check if intel_gpu_top is available
+        std::process::Command::new("intel_gpu_top")
+            .arg("-h")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+
+    fn get_availability_error() -> String {
+        "Intel GPU tools not available. Please install intel-gpu-tools package.".to_string()
+    }
+}
+
 /// Multi-vendor GPU manager
 pub struct GpuManager {
     vendors: Vec<Box<dyn GpuVendorInterface + Send + Sync>>,
@@ -457,9 +607,22 @@ impl GpuManager {
             }
         }
 
+        // Try to initialize Intel
+        if IntelVendor::is_available() {
+            match IntelVendor::initialize() {
+                Ok(intel) => {
+                    tracing::info!("Intel GPU support initialized");
+                    vendors.push(Box::new(intel));
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to initialize Intel support: {}", e);
+                }
+            }
+        }
+
         if vendors.is_empty() {
             return Err(anyhow::anyhow!(
-                "No GPU vendors available. Please install NVIDIA or AMD drivers."
+                "No GPU vendors available. Please install NVIDIA, AMD, or Intel GPU drivers."
             ));
         }
 

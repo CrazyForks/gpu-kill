@@ -117,6 +117,13 @@ mod mock_tests {
     }
 
     #[test]
+    fn test_vendor_filter_intel() {
+        let cli = Cli::try_parse_from(&["gpukill", "--list", "--vendor", "intel"]).unwrap();
+        assert!(cli.list);
+        assert_eq!(cli.vendor, Some(VendorFilter::Intel));
+    }
+
+    #[test]
     fn test_vendor_filter_all() {
         let cli = Cli::try_parse_from(&["gpukill", "--list", "--vendor", "all"]).unwrap();
         assert!(cli.list);
@@ -685,6 +692,23 @@ mod integration_tests {
         let error_msg = AmdVendor::get_availability_error();
         assert!(error_msg.contains("AMD"));
         assert!(error_msg.contains("ROCm"));
+    }
+
+    #[test]
+    fn test_intel_vendor_availability() {
+        // This test checks if Intel vendor is available
+        // It will pass if intel_gpu_top is available, skip if not
+        let is_available = gpukill::vendor::IntelVendor::is_available();
+        // We can't assert the result since it depends on the system
+        // But we can ensure the function doesn't panic
+        let _ = is_available;
+    }
+
+    #[test]
+    fn test_intel_vendor_error_message() {
+        let error_msg = gpukill::vendor::IntelVendor::get_availability_error();
+        assert!(error_msg.contains("Intel"));
+        assert!(error_msg.contains("intel-gpu-tools"));
     }
 
     #[test]
