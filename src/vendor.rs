@@ -839,6 +839,7 @@ pub struct GpuManager {
     vendors: Vec<Box<dyn GpuVendorInterface + Send + Sync>>,
 }
 
+#[allow(dead_code)]
 impl GpuManager {
     /// Initialize the GPU manager with all available vendors
     pub fn initialize() -> Result<Self> {

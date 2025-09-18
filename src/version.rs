@@ -4,6 +4,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Build information
 pub const BUILD_DATE: &str = "unknown";
 pub const BUILD_TARGET: &str = "unknown";
+#[allow(dead_code)]
 pub const GIT_COMMIT: &str = "unknown";
 
 /// Get formatted version string
@@ -17,6 +18,7 @@ pub fn get_version_string() -> String {
 }
 
 /// Get detailed version information
+#[allow(dead_code)]
 pub fn get_detailed_version() -> String {
     format!(
         "gpukill version {}\n\

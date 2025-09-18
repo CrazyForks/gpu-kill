@@ -18,6 +18,7 @@ pub struct Renderer {
     output_format: OutputFormat,
 }
 
+#[allow(dead_code)]
 impl Renderer {
     /// Create a new renderer
     pub fn new(output_format: OutputFormat) -> Self {

@@ -8,7 +8,6 @@ use crate::vendor::{GpuManager, GpuVendor};
 use crate::version::get_version_string;
 use anyhow::{Context, Result};
 use std::process;
-use std::thread;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
@@ -231,7 +230,7 @@ async fn execute_watch_mode(
     gpu_manager: GpuManager,
     config_manager: crate::config::ConfigManager,
 ) -> Result<()> {
-    let interval = Duration::from_secs(config_manager.config().watch_interval_secs);
+    let _interval = Duration::from_secs(config_manager.config().watch_interval_secs);
     
     info!("Starting watch mode (refresh every {}s). Press Ctrl-C to stop.", 
           config_manager.config().watch_interval_secs);

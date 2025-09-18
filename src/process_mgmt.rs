@@ -11,6 +11,7 @@ pub struct EnhancedProcessManager {
     system: System,
 }
 
+#[allow(dead_code)]
 impl EnhancedProcessManager {
     pub fn new(process_manager: ProcessManager) -> Self {
         Self {

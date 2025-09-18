@@ -51,6 +51,7 @@ pub struct ConfigManager {
     config: Config,
 }
 
+#[allow(dead_code)]
 impl ConfigManager {
     /// Create a new configuration manager
     pub fn new() -> Self {

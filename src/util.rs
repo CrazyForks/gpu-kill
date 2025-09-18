@@ -10,6 +10,7 @@ pub fn get_hostname() -> String {
 }
 
 /// Format a timestamp as a human-readable string
+#[allow(dead_code)]
 pub fn format_timestamp(timestamp: SystemTime) -> String {
     let datetime: DateTime<Local> = timestamp.into();
     datetime.format("%Y-%m-%d %H:%M:%S").to_string()
@@ -27,6 +28,7 @@ pub fn get_current_timestamp_iso() -> String {
 }
 
 /// Format duration as human-readable string
+#[allow(dead_code)]
 pub fn format_duration(duration: Duration) -> String {
     let total_seconds = duration.as_secs();
     let hours = total_seconds / 3600;
@@ -43,6 +45,7 @@ pub fn format_duration(duration: Duration) -> String {
 }
 
 /// Format memory size in bytes to human-readable format
+#[allow(dead_code)]
 pub fn format_memory_size(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
     const THRESHOLD: u64 = 1024;
@@ -73,21 +76,25 @@ pub fn format_memory_mb_to_gib(mb: u32) -> String {
 }
 
 /// Check if running on Linux
+#[allow(dead_code)]
 pub fn is_linux() -> bool {
     cfg!(target_os = "linux")
 }
 
 /// Check if running on macOS
+#[allow(dead_code)]
 pub fn is_macos() -> bool {
     cfg!(target_os = "macos")
 }
 
 /// Check if running on Windows
+#[allow(dead_code)]
 pub fn is_windows() -> bool {
     cfg!(target_os = "windows")
 }
 
 /// Get operating system name
+#[allow(dead_code)]
 pub fn get_os_name() -> &'static str {
     if is_linux() {
         "Linux"
@@ -110,6 +117,7 @@ pub fn truncate_string(s: &str, max_len: usize) -> String {
 }
 
 /// Parse process start time from system time
+#[allow(dead_code)]
 pub fn parse_process_start_time(start_time: SystemTime) -> String {
     let now = SystemTime::now();
     let duration = now.duration_since(start_time).unwrap_or_default();

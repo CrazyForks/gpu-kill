@@ -10,10 +10,13 @@ use sysinfo::{Pid as SysPid, System};
 /// Process information for a running process
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
+    #[allow(dead_code)]
     pub pid: u32,
     pub user: String,
     pub name: String,
+    #[allow(dead_code)]
     pub start_time: SystemTime,
+    #[allow(dead_code)]
     pub cmdline: String,
 }
 
@@ -23,6 +26,7 @@ pub struct ProcessManager {
     system: System,
 }
 
+#[allow(dead_code)]
 impl ProcessManager {
     /// Create a new process manager
     pub fn new(nvml_api: NvmlApi) -> Self {
@@ -263,6 +267,7 @@ fn get_username_from_uid(uid: u32) -> Result<String> {
 }
 
 #[cfg(not(target_os = "linux"))]
+#[allow(dead_code)]
 fn get_username_from_uid(_uid: u32) -> Result<String> {
     Ok("unknown".to_string())
 }

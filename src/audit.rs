@@ -38,6 +38,7 @@ pub struct AuditManager {
     data_dir: PathBuf,
 }
 
+#[allow(dead_code)]
 impl AuditManager {
     /// Initialize the audit manager with JSON file storage
     pub async fn new() -> Result<Self> {

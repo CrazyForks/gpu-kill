@@ -53,6 +53,7 @@ pub struct NvmlApi {
     nvml: Nvml,
 }
 
+#[allow(dead_code)]
 impl NvmlApi {
     /// Initialize NVML API
     pub fn new() -> Result<Self> {
