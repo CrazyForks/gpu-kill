@@ -1053,6 +1053,308 @@ show_details = false
     - Use `--force` flag if processes are unresponsive
     - Check that the filter pattern matches existing processes
 
+## Guard Mode
+
+Guard Mode provides soft policy enforcement to prevent GPU resource abuse with safe testing capabilities. It allows administrators to set policies for users, groups, and GPUs, with configurable enforcement modes and comprehensive monitoring.
+
+### Overview
+
+Guard Mode is designed to:
+- **Prevent Resource Abuse**: Set limits on memory usage, GPU utilization, and concurrent processes
+- **Safe Testing**: Dry-run mode allows testing policies without affecting running processes
+- **Flexible Enforcement**: Choose between soft warnings and hard enforcement actions
+- **Real-time Monitoring**: Live policy violation detection and alerting
+- **Dashboard Integration**: Visual policy management and monitoring interface
+
+### Configuration
+
+Guard Mode configuration is stored in TOML format at:
+- **Linux**: `~/.local/share/gpukill/guard_mode_config.toml`
+- **macOS**: `~/Library/Application Support/gpukill/guard_mode_config.toml`
+- **Windows**: `%APPDATA%\gpukill\guard_mode_config.toml`
+
+### Policy Types
+
+#### User Policies
+Control resource usage per user:
+```toml
+[user_policies.developer]
+username = "developer"
+memory_limit_gb = 8.0
+utilization_limit_pct = 70.0
+duration_limit_hours = 12.0
+max_concurrent_processes = 3
+priority = 5
+allowed_gpus = []
+blocked_gpus = []
+time_overrides = []
+```
+
+#### Group Policies
+Control resource usage per group:
+```toml
+[group_policies.researchers]
+group_name = "researchers"
+memory_limit_gb = 16.0
+utilization_limit_pct = 80.0
+duration_limit_hours = 24.0
+max_concurrent_processes = 5
+priority = 3
+allowed_gpus = [0, 1]
+blocked_gpus = []
+time_overrides = []
+```
+
+#### GPU Policies
+Control access to specific GPUs:
+```toml
+[gpu_policies.gpu_0]
+gpu_index = 0
+memory_limit_gb = 24.0
+utilization_limit_pct = 90.0
+max_concurrent_processes = 8
+priority = 1
+allowed_users = ["admin", "developer"]
+blocked_users = []
+time_restrictions = []
+```
+
+#### Time Policies
+Control resource usage during specific time periods:
+```toml
+[[time_policies]]
+name = "business_hours"
+start_time = "09:00"
+end_time = "17:00"
+days_of_week = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+memory_limit_gb = 16.0
+utilization_limit_pct = 80.0
+max_concurrent_processes = 5
+```
+
+### Enforcement Modes
+
+#### Dry-Run Mode
+Safe testing without affecting running processes:
+- **Simulation Only**: All policy violations are simulated
+- **No Actions Taken**: Processes continue running normally
+- **Detailed Logging**: Shows exactly what would happen
+- **Safe Testing**: Perfect for policy validation
+
+#### Soft Enforcement
+Warnings and notifications before hard actions:
+- **Warning Notifications**: Send alerts for policy violations
+- **Grace Period**: Allow time for users to adjust
+- **Escalation**: Progress to hard enforcement if violations persist
+- **Logging**: Record all violations and warnings
+
+#### Hard Enforcement
+Immediate action on policy violations:
+- **Process Termination**: Kill processes that violate policies
+- **Resource Limits**: Enforce memory and utilization limits
+- **Access Control**: Block access to restricted GPUs
+- **Immediate Action**: No grace period for critical violations
+
+### CLI Commands
+
+#### Basic Guard Mode Operations
+```bash
+# Enable Guard Mode
+gpukill --guard --guard-enable
+
+# Disable Guard Mode
+gpukill --guard --guard-disable
+
+# View current configuration
+gpukill --guard --guard-config
+
+# Set dry-run mode (safe testing)
+gpukill --guard --guard-dry-run
+
+# Set enforcement mode (live enforcement)
+gpukill --guard --guard-enforce
+```
+
+#### Policy Management
+```bash
+# Add user policy
+gpukill --guard --guard-add-user "developer" --guard-memory-limit 8.0 --guard-utilization-limit 70.0 --guard-process-limit 3
+
+# Remove user policy
+gpukill --guard --guard-remove-user "developer"
+
+# Update policy limits
+gpukill --guard --guard-memory-limit 16.0 --guard-utilization-limit 80.0 --guard-process-limit 5
+```
+
+#### Policy Testing
+```bash
+# Test policies in dry-run mode
+gpukill --guard --guard-test-policies
+
+# Toggle dry-run mode
+gpukill --guard --guard-toggle-dry-run
+```
+
+#### Configuration Management
+```bash
+# Export configuration
+gpukill --guard --guard-export-config > guard_config.json
+
+# Import configuration
+gpukill --guard --guard-import-config guard_config.json
+```
+
+### API Endpoints
+
+#### Configuration Management
+```bash
+# Get Guard Mode configuration
+GET /api/guard/config
+
+# Update Guard Mode configuration
+POST /api/guard/config
+Content-Type: application/json
+{
+  "global": {
+    "enabled": true,
+    "dry_run": true,
+    "default_memory_limit_gb": 16.0,
+    "default_utilization_limit_pct": 80.0
+  }
+}
+```
+
+#### Policy Management
+```bash
+# Get policies
+GET /api/guard/policies
+
+# Update policies
+POST /api/guard/policies
+Content-Type: application/json
+{
+  "user_policies": {
+    "developer": {
+      "username": "developer",
+      "memory_limit_gb": 8.0,
+      "utilization_limit_pct": 70.0,
+      "max_concurrent_processes": 3
+    }
+  }
+}
+```
+
+#### Status and Testing
+```bash
+# Get Guard Mode status
+GET /api/guard/status
+
+# Toggle dry-run mode
+POST /api/guard/toggle-dry-run
+
+# Test policies
+POST /api/guard/test-policies
+```
+
+### Dashboard Integration
+
+The dashboard provides a comprehensive interface for Guard Mode management:
+
+#### Status Overview
+- **Mode Indicator**: Shows current enforcement mode (dry-run/enforcing)
+- **Policy Counts**: Displays number of active policies
+- **Violation Statistics**: Shows total violations and warnings
+- **Real-time Updates**: Live status monitoring
+
+#### Policy Management
+- **Visual Policy Editor**: Create and edit policies through the web interface
+- **Policy Statistics**: View policy counts and effectiveness
+- **User Management**: Add/remove user policies
+- **Configuration Export**: Download policy configurations
+
+#### Monitoring and Alerts
+- **Recent Violations**: Display latest policy violations
+- **Warning History**: Track policy warnings over time
+- **Action Logs**: Monitor enforcement actions taken
+- **Real-time Alerts**: Live violation notifications
+
+#### Testing Interface
+- **Policy Testing**: Run policy simulations
+- **Dry-run Toggle**: Switch between testing and enforcement modes
+- **Simulation Results**: View detailed test results
+- **Action Preview**: See what would happen in enforcement mode
+
+### Violation Types
+
+#### Memory Violations
+- **Excessive Memory Usage**: Process exceeds memory limit
+- **Memory Hoarding**: Long-running processes with high memory usage
+- **Memory Leaks**: Processes with continuously increasing memory usage
+
+#### Utilization Violations
+- **High GPU Utilization**: Process exceeds utilization limit
+- **Sustained High Usage**: Long periods of high GPU utilization
+- **Resource Waste**: Processes with low efficiency
+
+#### Process Violations
+- **Too Many Processes**: User exceeds concurrent process limit
+- **Long-running Processes**: Processes exceeding duration limits
+- **Unauthorized Processes**: Processes not allowed by policy
+
+#### Access Violations
+- **GPU Access**: Attempting to use blocked GPUs
+- **Time Restrictions**: Using GPUs during restricted hours
+- **User Restrictions**: Unauthorized user access
+
+### Enforcement Actions
+
+#### Warning Actions
+- **Console Notifications**: Display warnings in terminal
+- **Log File Entries**: Record warnings in log files
+- **Email Alerts**: Send email notifications (if configured)
+- **Webhook Notifications**: Send alerts to external systems
+
+#### Enforcement Actions
+- **Process Termination**: Kill violating processes
+- **Resource Limits**: Enforce memory and utilization limits
+- **Access Blocking**: Prevent access to restricted resources
+- **User Notifications**: Inform users of policy violations
+
+### Best Practices
+
+#### Policy Design
+- **Start Conservative**: Begin with generous limits and tighten over time
+- **Test Thoroughly**: Use dry-run mode extensively before enabling enforcement
+- **Monitor Closely**: Watch for false positives and adjust policies accordingly
+- **Document Policies**: Keep clear records of policy decisions and changes
+
+#### Implementation
+- **Gradual Rollout**: Enable policies for a subset of users first
+- **User Communication**: Inform users about new policies and limits
+- **Training**: Provide guidance on policy compliance
+- **Feedback Loop**: Collect user feedback and adjust policies
+
+#### Monitoring
+- **Regular Reviews**: Periodically review policy effectiveness
+- **Violation Analysis**: Analyze patterns in policy violations
+- **Performance Impact**: Monitor system performance under policies
+- **User Satisfaction**: Track user satisfaction with policy enforcement
+
+### Troubleshooting
+
+#### Common Issues
+- **False Positives**: Adjust policy thresholds if legitimate processes are flagged
+- **Performance Impact**: Monitor system performance under policy enforcement
+- **User Complaints**: Address user concerns about policy restrictions
+- **Configuration Errors**: Validate policy configuration syntax
+
+#### Debugging
+- **Enable Debug Logging**: Use `RUST_LOG=debug` for detailed logs
+- **Test Policies**: Use dry-run mode to validate policy behavior
+- **Check Configuration**: Verify policy configuration files
+- **Monitor Violations**: Review violation logs for patterns
+
 ## Development
 
 ### Building
