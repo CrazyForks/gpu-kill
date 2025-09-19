@@ -1,5 +1,6 @@
 use crate::args::{Cli, OutputFormat, VendorFilter};
 use crate::config::get_config;
+use crate::coordinator::{CoordinatorState, create_router};
 use crate::nvml_api::{NvmlApi, Snapshot};
 use crate::proc::ProcessManager;
 use crate::process_mgmt::EnhancedProcessManager;
@@ -14,6 +15,7 @@ use tracing::{error, info, warn};
 mod args;
 mod audit;
 mod config;
+mod coordinator;
 mod nvml_api;
 mod proc;
 mod process_mgmt;
@@ -120,6 +122,12 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
             cli.audit_hours,
             cli.audit_summary,
             cli.output,
+        ).await
+    } else if cli.server {
+        execute_server_operation(
+            cli.server_host,
+            cli.server_port,
+            gpu_manager,
         ).await
     } else {
         Err(anyhow::anyhow!("No operation specified"))
@@ -549,4 +557,77 @@ mod tests {
         let version = get_version_string();
         assert!(version.contains("gpukill"));
     }
+}
+
+/// Execute server operation
+async fn execute_server_operation(
+    host: String,
+    port: u16,
+    gpu_manager: GpuManager,
+) -> Result<()> {
+    use axum::serve;
+    use std::net::SocketAddr;
+
+    info!("Starting GPU Kill Coordinator Server on {}:{}", host, port);
+
+    // Initialize coordinator state
+    let state = CoordinatorState::new();
+
+    // Register this node as the coordinator
+    let node_id = uuid::Uuid::new_v4().to_string();
+    let hostname = crate::util::get_hostname();
+    
+    // Get initial GPU information
+    let gpu_snapshots = gpu_manager.get_all_snapshots()?;
+    let gpu_processes = gpu_manager.get_all_processes()?;
+    let total_memory_gb = gpu_snapshots.iter()
+        .map(|gpu| gpu.mem_total_mb as f32 / 1024.0)
+        .sum();
+
+    let node_info = crate::coordinator::NodeInfo {
+        id: node_id.clone(),
+        hostname: hostname.clone(),
+        ip_address: "127.0.0.1".to_string(), // TODO: Get actual IP
+        last_seen: chrono::Utc::now(),
+        status: crate::coordinator::NodeStatus::Online,
+        gpu_count: gpu_snapshots.len() as u32,
+        total_memory_gb,
+        tags: std::collections::HashMap::new(),
+    };
+
+    state.register_node(node_info).await?;
+
+    // Create initial snapshot
+    let initial_snapshot = crate::coordinator::NodeSnapshot {
+        node_id: node_id.clone(),
+        hostname,
+        timestamp: chrono::Utc::now(),
+        gpus: gpu_snapshots,
+        processes: gpu_processes,
+        status: crate::coordinator::NodeStatus::Online,
+    };
+
+    state.update_snapshot(node_id, initial_snapshot).await?;
+
+    // Create router
+    let app = create_router(state);
+
+    // Start server
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    info!("GPU Kill Coordinator Server listening on http://{}", addr);
+    info!("Dashboard will be available at http://{}:{}", host, port);
+    info!("API endpoints:");
+    info!("  GET  /api/nodes - List all nodes");
+    info!("  GET  /api/cluster/snapshot - Get cluster snapshot");
+    info!("  GET  /api/cluster/contention - Get contention analysis");
+    info!("  WS   /ws - WebSocket for real-time updates");
+
+    let listener = tokio::net::TcpListener::bind(&addr).await
+        .context("Failed to bind to address")?;
+    
+    serve(listener, app)
+        .await
+        .context("Failed to start server")?;
+
+    Ok(())
 }

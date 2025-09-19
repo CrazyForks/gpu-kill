@@ -34,6 +34,10 @@ pub struct Cli {
     #[arg(long)]
     pub audit: bool,
 
+    /// Start coordinator server for cluster management
+    #[arg(long)]
+    pub server: bool,
+
     /// Show detailed per-process information
     #[arg(long)]
     pub details: bool,
@@ -97,6 +101,14 @@ pub struct Cli {
     /// Show audit summary (top users/processes)
     #[arg(long, requires = "audit")]
     pub audit_summary: bool,
+
+    /// Server port for coordinator API
+    #[arg(long, requires = "server", default_value = "8080")]
+    pub server_port: u16,
+
+    /// Server host for coordinator API
+    #[arg(long, requires = "server", default_value = "0.0.0.0")]
+    pub server_host: String,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -167,13 +179,13 @@ impl Cli {
     /// Validate argument combinations
     fn validate(&self) {
         // Check that exactly one operation is specified
-        let operation_count = [self.list, self.kill, self.reset, self.audit].iter().filter(|&&x| x).count();
+        let operation_count = [self.list, self.kill, self.reset, self.audit, self.server].iter().filter(|&&x| x).count();
         if operation_count == 0 {
-            eprintln!("Error: Exactly one of --list, --kill, --reset, or --audit must be specified");
+            eprintln!("Error: Exactly one of --list, --kill, --reset, --audit, or --server must be specified");
             std::process::exit(3);
         }
         if operation_count > 1 {
-            eprintln!("Error: Only one of --list, --kill, --reset, or --audit can be specified");
+            eprintln!("Error: Only one of --list, --kill, --reset, --audit, or --server can be specified");
             std::process::exit(3);
         }
 

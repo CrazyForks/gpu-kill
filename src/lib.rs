@@ -1,6 +1,7 @@
 pub mod args;
 pub mod audit;
 pub mod config;
+pub mod coordinator;
 pub mod nvml_api;
 pub mod proc;
 pub mod process_mgmt;

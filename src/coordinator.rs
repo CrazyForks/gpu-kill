@@ -1,0 +1,388 @@
+use crate::nvml_api::{GpuProc, GpuSnapshot};
+use anyhow::Result;
+use axum::{
+    extract::{Path, State, WebSocketUpgrade},
+    http::StatusCode,
+    response::Json,
+    routing::{get, post},
+    Router,
+};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::Duration,
+};
+use tokio::sync::RwLock;
+use tower_http::cors::CorsLayer;
+
+/// Node information for cluster management
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeInfo {
+    pub id: String,
+    pub hostname: String,
+    pub ip_address: String,
+    pub last_seen: DateTime<Utc>,
+    pub status: NodeStatus,
+    pub gpu_count: u32,
+    pub total_memory_gb: f32,
+    pub tags: HashMap<String, String>,
+}
+
+/// Node status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NodeStatus {
+    Online,
+    Offline,
+    Degraded,
+}
+
+/// Cluster snapshot combining all nodes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterSnapshot {
+    pub timestamp: DateTime<Utc>,
+    pub nodes: Vec<NodeSnapshot>,
+    pub total_gpus: u32,
+    pub total_memory_gb: f32,
+    pub active_processes: u32,
+    pub utilization_avg: f32,
+}
+
+/// Node snapshot with GPU and process data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeSnapshot {
+    pub node_id: String,
+    pub hostname: String,
+    pub timestamp: DateTime<Utc>,
+    pub gpus: Vec<GpuSnapshot>,
+    pub processes: Vec<GpuProc>,
+    pub status: NodeStatus,
+}
+
+/// Contention analysis for Magic Moment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentionAnalysis {
+    pub blocked_gpus: Vec<BlockedGpu>,
+    pub top_users: Vec<UserUsage>,
+    pub recommendations: Vec<String>,
+}
+
+/// Information about a blocked GPU
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockedGpu {
+    pub node_id: String,
+    pub gpu_index: u16,
+    pub gpu_name: String,
+    pub blocking_processes: Vec<GpuProc>,
+    pub utilization_pct: f32,
+    pub memory_used_mb: u32,
+    pub memory_total_mb: u32,
+}
+
+/// User usage statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserUsage {
+    pub user: String,
+    pub gpu_count: u32,
+    pub total_memory_mb: u32,
+    pub avg_utilization: f32,
+    pub process_count: u32,
+}
+
+/// Coordinator state
+#[derive(Debug, Clone)]
+pub struct CoordinatorState {
+    pub nodes: Arc<RwLock<HashMap<String, NodeInfo>>>,
+    pub snapshots: Arc<RwLock<HashMap<String, NodeSnapshot>>>,
+    pub last_cluster_snapshot: Arc<RwLock<Option<ClusterSnapshot>>>,
+}
+
+impl CoordinatorState {
+    pub fn new() -> Self {
+        Self {
+            nodes: Arc::new(RwLock::new(HashMap::new())),
+            snapshots: Arc::new(RwLock::new(HashMap::new())),
+            last_cluster_snapshot: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Register or update a node
+    pub async fn register_node(&self, node_info: NodeInfo) -> Result<()> {
+        let mut nodes = self.nodes.write().await;
+        nodes.insert(node_info.id.clone(), node_info);
+        Ok(())
+    }
+
+    /// Update node snapshot
+    pub async fn update_snapshot(&self, node_id: String, snapshot: NodeSnapshot) -> Result<()> {
+        // Update node last seen
+        {
+            let mut nodes = self.nodes.write().await;
+            if let Some(node) = nodes.get_mut(&node_id) {
+                node.last_seen = Utc::now();
+                node.status = NodeStatus::Online;
+            }
+        }
+
+        // Store snapshot
+        {
+            let mut snapshots = self.snapshots.write().await;
+            snapshots.insert(node_id.clone(), snapshot);
+        }
+
+        // Update cluster snapshot
+        self.update_cluster_snapshot().await?;
+        Ok(())
+    }
+
+    /// Get all nodes
+    pub async fn get_nodes(&self) -> Vec<NodeInfo> {
+        let nodes = self.nodes.read().await;
+        nodes.values().cloned().collect()
+    }
+
+    /// Get cluster snapshot
+    pub async fn get_cluster_snapshot(&self) -> Option<ClusterSnapshot> {
+        let snapshot = self.last_cluster_snapshot.read().await;
+        snapshot.clone()
+    }
+
+    /// Get contention analysis (Magic Moment)
+    pub async fn get_contention_analysis(&self) -> Result<ContentionAnalysis> {
+        let snapshots = self.snapshots.read().await;
+        let mut blocked_gpus = Vec::new();
+        let mut user_stats: HashMap<String, (u32, u32, f32, u32)> = HashMap::new(); // (gpu_count, memory, util, processes)
+
+        for (node_id, snapshot) in snapshots.iter() {
+            for gpu in &snapshot.gpus {
+                // Find processes using this GPU
+                let gpu_processes: Vec<GpuProc> = snapshot
+                    .processes
+                    .iter()
+                    .filter(|p| p.gpu_index == gpu.gpu_index)
+                    .cloned()
+                    .collect();
+
+                // Check if GPU is blocked (high utilization or memory usage)
+                let is_blocked = gpu.util_pct > 80.0 || 
+                    (gpu.mem_used_mb as f32 / gpu.mem_total_mb as f32) > 0.8;
+
+                if is_blocked && !gpu_processes.is_empty() {
+                    blocked_gpus.push(BlockedGpu {
+                        node_id: node_id.clone(),
+                        gpu_index: gpu.gpu_index,
+                        gpu_name: gpu.name.clone(),
+                        blocking_processes: gpu_processes.clone(),
+                        utilization_pct: gpu.util_pct,
+                        memory_used_mb: gpu.mem_used_mb,
+                        memory_total_mb: gpu.mem_total_mb,
+                    });
+                }
+
+                // Aggregate user statistics
+                for process in &gpu_processes {
+                    let entry = user_stats.entry(process.user.clone()).or_insert((0, 0, 0.0, 0));
+                    entry.0 += 1; // gpu_count
+                    entry.1 += process.used_mem_mb; // memory
+                    entry.2 += gpu.util_pct; // utilization (will average later)
+                    entry.3 += 1; // process_count
+                }
+            }
+        }
+
+        // Convert user stats to UserUsage
+        let mut top_users: Vec<UserUsage> = user_stats
+            .into_iter()
+            .map(|(user, (gpu_count, total_memory_mb, total_util, process_count))| {
+                UserUsage {
+                    user,
+                    gpu_count,
+                    total_memory_mb,
+                    avg_utilization: total_util / process_count as f32,
+                    process_count,
+                }
+            })
+            .collect();
+
+        // Sort by memory usage
+        top_users.sort_by(|a, b| b.total_memory_mb.cmp(&a.total_memory_mb));
+        top_users.truncate(10);
+
+        // Generate recommendations
+        let mut recommendations = Vec::new();
+        if !blocked_gpus.is_empty() {
+            recommendations.push(format!("{} GPUs are currently blocked by high utilization", blocked_gpus.len()));
+        }
+        if let Some(top_user) = top_users.first() {
+            recommendations.push(format!("User '{}' is using the most GPU memory ({} MB)", top_user.user, top_user.total_memory_mb));
+        }
+
+        Ok(ContentionAnalysis {
+            blocked_gpus,
+            top_users,
+            recommendations,
+        })
+    }
+
+    /// Update cluster snapshot from current node snapshots
+    async fn update_cluster_snapshot(&self) -> Result<()> {
+        let snapshots = self.snapshots.read().await;
+        let _nodes = self.nodes.read().await;
+
+        let mut cluster_nodes = Vec::new();
+        let mut total_gpus = 0;
+        let mut total_memory_gb = 0.0;
+        let mut active_processes = 0;
+        let mut total_utilization = 0.0;
+        let mut gpu_count = 0;
+
+        for (_node_id, snapshot) in snapshots.iter() {
+            cluster_nodes.push(snapshot.clone());
+            total_gpus += snapshot.gpus.len() as u32;
+            active_processes += snapshot.processes.len() as u32;
+
+            for gpu in &snapshot.gpus {
+                total_memory_gb += gpu.mem_total_mb as f32 / 1024.0;
+                total_utilization += gpu.util_pct;
+                gpu_count += 1;
+            }
+        }
+
+        let cluster_snapshot = ClusterSnapshot {
+            timestamp: Utc::now(),
+            nodes: cluster_nodes,
+            total_gpus,
+            total_memory_gb,
+            active_processes,
+            utilization_avg: if gpu_count > 0 { total_utilization / gpu_count as f32 } else { 0.0 },
+        };
+
+        let mut last_snapshot = self.last_cluster_snapshot.write().await;
+        *last_snapshot = Some(cluster_snapshot);
+
+        Ok(())
+    }
+
+    /// Clean up stale nodes (offline for more than 5 minutes)
+    pub async fn cleanup_stale_nodes(&self) -> Result<()> {
+        let cutoff = Utc::now() - chrono::Duration::minutes(5);
+        let mut nodes = self.nodes.write().await;
+        let mut snapshots = self.snapshots.write().await;
+
+        let stale_nodes: Vec<String> = nodes
+            .iter()
+            .filter(|(_, node)| node.last_seen < cutoff)
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for node_id in stale_nodes {
+            nodes.remove(&node_id);
+            snapshots.remove(&node_id);
+        }
+
+        Ok(())
+    }
+}
+
+/// Create the coordinator API router
+pub fn create_router(state: CoordinatorState) -> Router {
+    Router::new()
+        .route("/api/nodes", get(get_nodes))
+        .route("/api/nodes/:node_id/register", post(register_node))
+        .route("/api/nodes/:node_id/snapshot", post(update_snapshot))
+        .route("/api/cluster/snapshot", get(get_cluster_snapshot))
+        .route("/api/cluster/contention", get(get_contention_analysis))
+        .route("/ws", get(websocket_handler))
+        .layer(CorsLayer::permissive())
+        .with_state(state)
+}
+
+/// Get all nodes
+async fn get_nodes(State(state): State<CoordinatorState>) -> Json<Vec<NodeInfo>> {
+    let nodes = state.get_nodes().await;
+    Json(nodes)
+}
+
+/// Register a new node
+async fn register_node(
+    State(state): State<CoordinatorState>,
+    Path(_node_id): Path<String>,
+    Json(node_info): Json<NodeInfo>,
+) -> Result<Json<()>, StatusCode> {
+    state.register_node(node_info).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(()))
+}
+
+/// Update node snapshot
+async fn update_snapshot(
+    State(state): State<CoordinatorState>,
+    Path(node_id): Path<String>,
+    Json(snapshot): Json<NodeSnapshot>,
+) -> Result<Json<()>, StatusCode> {
+    state.update_snapshot(node_id, snapshot).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(()))
+}
+
+/// Get cluster snapshot
+async fn get_cluster_snapshot(State(state): State<CoordinatorState>) -> Json<Option<ClusterSnapshot>> {
+    let snapshot = state.get_cluster_snapshot().await;
+    Json(snapshot)
+}
+
+/// Get contention analysis (Magic Moment)
+async fn get_contention_analysis(State(state): State<CoordinatorState>) -> Result<Json<ContentionAnalysis>, StatusCode> {
+    let analysis = state.get_contention_analysis().await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(analysis))
+}
+
+/// WebSocket handler for real-time updates
+async fn websocket_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<CoordinatorState>,
+) -> axum::response::Response {
+    ws.on_upgrade(|socket| websocket_connection(socket, state))
+}
+
+/// Handle WebSocket connection
+async fn websocket_connection(socket: axum::extract::ws::WebSocket, state: CoordinatorState) {
+    use axum::extract::ws::Message;
+    use futures_util::{sink::SinkExt, stream::StreamExt};
+
+    let (mut sender, mut receiver) = socket.split();
+
+    // Send initial cluster snapshot
+    if let Some(snapshot) = state.get_cluster_snapshot().await {
+        if let Ok(json) = serde_json::to_string(&snapshot) {
+            let _ = sender.send(Message::Text(json)).await;
+        }
+    }
+
+    // Handle incoming messages and send periodic updates
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                // Send updated cluster snapshot
+                if let Some(snapshot) = state.get_cluster_snapshot().await {
+                    if let Ok(json) = serde_json::to_string(&snapshot) {
+                        let _ = sender.send(Message::Text(json)).await;
+                    }
+                }
+            }
+            msg = receiver.next() => {
+                match msg {
+                    Some(Ok(Message::Close(_))) => break,
+                    Some(Ok(Message::Ping(data))) => {
+                        let _ = sender.send(Message::Pong(data)).await;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
