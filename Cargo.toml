@@ -41,6 +41,11 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 futures-util = "0.3"
 
+# SSH remote support (using system SSH for now)
+# ssh2 = "0.9"
+# rpassword = "7.3"
+
+
 # Apple Silicon GPU support
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.9"

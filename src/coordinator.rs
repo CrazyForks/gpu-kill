@@ -293,7 +293,15 @@ pub fn create_router(state: CoordinatorState) -> Router {
         .route("/api/nodes/:node_id/snapshot", post(update_snapshot))
         .route("/api/cluster/snapshot", get(get_cluster_snapshot))
         .route("/api/cluster/contention", get(get_contention_analysis))
-        .route("/ws", get(websocket_handler))
+            .route("/api/cluster/rogue", get(get_rogue_analysis))
+            .route("/api/guard/config", get(get_guard_config))
+            .route("/api/guard/config", post(update_guard_config))
+            .route("/api/guard/policies", get(get_guard_policies))
+            .route("/api/guard/policies", post(update_guard_policies))
+            .route("/api/guard/status", get(get_guard_status))
+            .route("/api/guard/toggle-dry-run", post(toggle_guard_dry_run))
+            .route("/api/guard/test-policies", post(test_guard_policies))
+            .route("/ws", get(websocket_handler))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -337,6 +345,22 @@ async fn get_contention_analysis(State(state): State<CoordinatorState>) -> Resul
     let analysis = state.get_contention_analysis().await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(analysis))
+}
+
+/// Get rogue activity analysis
+async fn get_rogue_analysis(State(_state): State<CoordinatorState>) -> Result<Json<crate::rogue_detection::RogueDetectionResult>, StatusCode> {
+    use crate::audit::AuditManager;
+    use crate::rogue_detection::RogueDetector;
+    
+    // Initialize audit manager and rogue detector
+    let audit_manager = AuditManager::new().await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let detector = RogueDetector::new(audit_manager);
+    let result = detector.detect_rogue_activity(24).await // Default to 24 hours
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    Ok(Json(result))
 }
 
 /// WebSocket handler for real-time updates
@@ -385,4 +409,153 @@ async fn websocket_connection(socket: axum::extract::ws::WebSocket, state: Coord
             }
         }
     }
+}
+
+/// Get Guard Mode configuration
+async fn get_guard_config(State(_state): State<CoordinatorState>) -> Result<Json<crate::guard_mode::GuardModeConfig>, StatusCode> {
+    use crate::guard_mode::GuardModeManager;
+
+    let guard_manager = GuardModeManager::new()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let config = guard_manager.get_config();
+    Ok(Json(config.clone()))
+}
+
+/// Update Guard Mode configuration
+async fn update_guard_config(
+    State(_state): State<CoordinatorState>,
+    Json(config): Json<crate::guard_mode::GuardModeConfig>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::guard_mode::GuardModeManager;
+
+    let mut guard_manager = GuardModeManager::new()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    guard_manager.update_config(config)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({"success": true, "message": "Guard Mode configuration updated"})))
+}
+
+/// Get Guard Mode policies
+async fn get_guard_policies(State(_state): State<CoordinatorState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::guard_mode::GuardModeManager;
+
+    let guard_manager = GuardModeManager::new()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let config = guard_manager.get_config();
+    
+    let policies = serde_json::json!({
+        "user_policies": config.user_policies,
+        "group_policies": config.group_policies,
+        "gpu_policies": config.gpu_policies,
+        "time_policies": config.time_policies,
+        "enforcement": config.enforcement
+    });
+
+    Ok(Json(policies))
+}
+
+/// Update Guard Mode policies
+async fn update_guard_policies(
+    State(_state): State<CoordinatorState>,
+    Json(policies): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::guard_mode::GuardModeManager;
+
+    let mut guard_manager = GuardModeManager::new()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Parse and update policies
+    if let Some(user_policies) = policies.get("user_policies") {
+        if let Ok(user_policies_map) = serde_json::from_value::<std::collections::HashMap<String, crate::guard_mode::UserPolicy>>(user_policies.clone()) {
+            for (_, policy) in user_policies_map {
+                guard_manager.add_user_policy(policy)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({"success": true, "message": "Policies updated"})))
+}
+
+/// Get Guard Mode status
+async fn get_guard_status(State(_state): State<CoordinatorState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::guard_mode::GuardModeManager;
+
+    let guard_manager = GuardModeManager::new()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let config = guard_manager.get_config();
+    let violation_history = guard_manager.get_violation_history();
+    let warning_history = guard_manager.get_warning_history();
+
+    let status = serde_json::json!({
+        "enabled": config.global.enabled,
+        "dry_run": config.global.dry_run,
+        "soft_enforcement": config.enforcement.soft_enforcement,
+        "hard_enforcement": config.enforcement.hard_enforcement,
+        "total_violations": violation_history.len(),
+        "total_warnings": warning_history.len(),
+        "recent_violations": violation_history.iter().rev().take(10).collect::<Vec<_>>(),
+        "recent_warnings": warning_history.iter().rev().take(10).collect::<Vec<_>>(),
+        "user_policy_count": config.user_policies.len(),
+        "group_policy_count": config.group_policies.len(),
+        "gpu_policy_count": config.gpu_policies.len()
+    });
+
+    Ok(Json(status))
+}
+
+/// Toggle Guard Mode dry-run
+async fn toggle_guard_dry_run(State(_state): State<CoordinatorState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::guard_mode::GuardModeManager;
+
+    let mut guard_manager = GuardModeManager::new()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let new_dry_run = guard_manager.toggle_dry_run()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "dry_run": new_dry_run,
+        "message": format!("Dry-run mode {}", if new_dry_run { "enabled" } else { "disabled" })
+    })))
+}
+
+/// Test Guard Mode policies
+async fn test_guard_policies(State(_state): State<CoordinatorState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::guard_mode::GuardModeManager;
+    use crate::vendor::GpuManager;
+
+    let mut guard_manager = GuardModeManager::new()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Get current GPU processes for testing
+    let gpu_manager = GpuManager::initialize()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let test_processes = gpu_manager.get_all_processes()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let result = guard_manager.simulate_policy_check(&test_processes)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "simulation_result": {
+            "violations": result.violations,
+            "warnings": result.warnings,
+            "actions_taken": result.actions_taken,
+            "dry_run": result.dry_run,
+            "timestamp": result.timestamp
+        },
+        "summary": {
+            "violation_count": result.violations.len(),
+            "warning_count": result.warnings.len(),
+            "action_count": result.actions_taken.len()
+        }
+    })))
 }

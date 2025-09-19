@@ -7,6 +7,11 @@
 - [Command Reference](#command-reference)
 - [Enhanced Features](#enhanced-features)
 - [Audit System](#audit-system)
+- [Suspicious Usage Detection](#suspicious-usage-detection)
+- [Guard Mode](#guard-mode)
+- [Cluster Management](#cluster-management)
+- [Remote Operations](#remote-operations)
+- [Dashboard](#dashboard)
 - [Output Formats](#output-formats)
 - [Configuration](#configuration)
 - [Safety Features](#safety-features)
@@ -16,7 +21,7 @@
 
 ## Architecture
 
-GPU Kill is built with Rust and supports NVIDIA, AMD, Intel, and Apple Silicon GPUs through vendor-specific interfaces. The tool is designed with safety, usability, and multi-vendor support in mind.
+GPU Kill is built with Rust and supports NVIDIA, AMD, Intel, and Apple Silicon GPUs through vendor-specific interfaces. The tool is designed with safety, usability, multi-vendor support, and distributed cluster management in mind.
 
 ### Core Components
 
@@ -31,6 +36,10 @@ GPU Kill is built with Rust and supports NVIDIA, AMD, Intel, and Apple Silicon G
 - **Audit System**: Automatic GPU usage tracking and historical analysis
 - **Renderer**: Formats output as tables or JSON
 - **Configuration**: Supports file and environment-based configuration
+- **Coordinator API**: RESTful API server for cluster management
+- **WebSocket Server**: Real-time updates for dashboard clients
+- **SSH Remote Manager**: Secure remote GPU management via SSH
+- **Dashboard Frontend**: Nuxt.js web interface for cluster monitoring
 
 ### Dependencies
 
@@ -45,6 +54,12 @@ GPU Kill is built with Rust and supports NVIDIA, AMD, Intel, and Apple Silicon G
 - `dirs`: Cross-platform data directory management
 - `tracing`: Structured logging
 - `color-eyre`: Error handling
+- `axum`: HTTP server framework for coordinator API
+- `tower`: HTTP middleware and services
+- `tower-http`: HTTP middleware (CORS, tracing)
+- `uuid`: Unique identifier generation for nodes
+- `futures-util`: Async utilities for WebSocket handling
+- `tokio`: Async runtime for HTTP server and WebSocket
 
 ## Installation
 
@@ -101,6 +116,12 @@ cargo build --release --target x86_64-pc-windows-gnu
 |--------|-------------|---------|
 | `--log-level <LEVEL>` | Set logging level | `info` |
 | `--config <PATH>` | Configuration file path | None |
+| `--remote <HOST>` | Remote host to connect to via SSH | None |
+| `--ssh-user <USER>` | SSH username (requires --remote) | Current user |
+| `--ssh-port <PORT>` | SSH port (requires --remote) | `22` |
+| `--ssh-key <PATH>` | SSH private key path (requires --remote) | None |
+| `--ssh-password <PASSWORD>` | SSH password (requires --remote) | Interactive prompt |
+| `--ssh-timeout <SECONDS>` | SSH connection timeout (requires --remote) | `30` |
 | `--help` | Show help information | - |
 | `--version` | Show version information | - |
 
@@ -202,33 +223,79 @@ gpukill --audit [OPTIONS]
 - `--audit-process <PATTERN>`: Filter by process name pattern
 - `--audit-hours <HOURS>`: Show records from last N hours (default: 24)
 - `--audit-summary`: Show summary statistics instead of detailed records
-- `--output <FORMAT>`: Output format (`table` or `json`)
+
+### Suspicious Usage Detection
+
+```bash
+gpukill --audit --rogue [OPTIONS]
+```
+
+**Detection Options:**
+- `--rogue`: Perform rogue activity detection
+- `--rogue-config`: Show current detection configuration
+- `--rogue-memory-threshold <GB>`: Set memory usage threshold
+- `--rogue-utilization-threshold <PERCENT>`: Set GPU utilization threshold
+- `--rogue-duration-threshold <HOURS>`: Set process duration threshold
+- `--rogue-confidence-threshold <CONFIDENCE>`: Set minimum confidence for detection
+
+**Whitelist Management:**
+- `--rogue-whitelist-process <NAME>`: Add process to whitelist
+- `--rogue-unwhitelist-process <NAME>`: Remove process from whitelist
+- `--rogue-whitelist-user <USERNAME>`: Add user to whitelist
+- `--rogue-unwhitelist-user <USERNAME>`: Remove user from whitelist
+
+**Configuration Management:**
+- `--rogue-export-config`: Export configuration to JSON
+- `--rogue-import-config <FILE>`: Import configuration from JSON file
 
 **Examples:**
 ```bash
-# Show last 24 hours of GPU usage
-gpukill --audit
+# Detect suspicious activity
+gpukill --audit --rogue --audit-hours 48
 
-# Show last 6 hours
-gpukill --audit --audit-hours 6
+# View current configuration
+gpukill --audit --rogue-config
 
-# Show usage summary
-gpukill --audit --audit-summary
+# Update detection thresholds
+gpukill --audit --rogue-memory-threshold 15.0 --rogue-utilization-threshold 90.0
 
-# Filter by user
-gpukill --audit --audit-user john
+# Manage whitelists
+gpukill --audit --rogue-whitelist-process "my-app"
+gpukill --audit --rogue-whitelist-user "developer"
 
-# Filter by process
-gpukill --audit --audit-process python
+# Export/import configuration
+gpukill --audit --rogue-export-config > config.json
+gpukill --audit --rogue-import-config config.json
+```
 
-# Combine filters
-gpukill --audit --audit-user alice --audit-process tensorflow --audit-hours 12
+### Server Operation
 
-# JSON output
-gpukill --audit --output json
+```bash
+gpukill --server [OPTIONS]
+```
 
-# Export filtered data
-gpukill --audit --audit-user john --output json > john_usage.json
+**Options:**
+- `--server-port <PORT>`: Port for coordinator API (default: 8080)
+- `--server-host <HOST>`: Host to bind coordinator API (default: 0.0.0.0)
+
+**Description:**
+Starts the GPU Kill coordinator server that provides:
+- RESTful API for cluster management
+- WebSocket server for real-time updates
+- Dashboard web interface
+- Node registration and heartbeat management
+- Magic Moment contention analysis
+
+**Examples:**
+```bash
+# Start coordinator on default port 8080
+gpukill --server
+
+# Start coordinator on custom port
+gpukill --server --server-port 9000
+
+# Start coordinator on all interfaces
+gpukill --server --server-host 0.0.0.0
 ```
 
 ## Enhanced Features
@@ -383,6 +450,133 @@ gpukill --audit --audit-summary
 gpukill --audit --audit-summary --audit-hours 168
 ```
 
+## Suspicious Usage Detection
+
+The suspicious usage detection system provides comprehensive security monitoring for GPU resources, detecting crypto miners, suspicious processes, and resource abuse patterns.
+
+### Detection Capabilities
+
+**🚨 Crypto Miner Detection:**
+- Identifies known mining software (xmrig, ccminer, ethminer, etc.)
+- Detects mining patterns in process names and behavior
+- Analyzes high GPU utilization and sustained usage
+- Provides confidence-based scoring for mining activity
+
+**⚠️ Suspicious Process Detection:**
+- Flags unusual process names and patterns
+- Detects excessive resource usage
+- Identifies processes from unusual users
+- Analyzes process behavior over time
+
+**📊 Resource Abuse Detection:**
+- Memory hogs consuming excessive GPU memory
+- Long-running processes that may be stuck
+- Excessive GPU utilization patterns
+- Unauthorized access attempts
+
+**🎯 Risk Assessment:**
+- Confidence-based threat scoring (0.0 - 1.0)
+- Risk level classification (Low, Medium, High, Critical)
+- Weighted scoring for different threat types
+- Actionable recommendations for each threat
+
+### Configuration System
+
+**Configuration File:**
+- **Location**: `~/.config/gpukill/rogue_config.toml`
+- **Format**: TOML with comprehensive detection rules
+- **Auto-creation**: Default configuration created on first use
+- **Version tracking**: Metadata includes version and modification timestamps
+
+**Detection Thresholds:**
+```toml
+[detection]
+max_memory_usage_gb = 20.0        # Maximum memory usage threshold
+max_utilization_pct = 95.0        # Maximum GPU utilization threshold
+max_duration_hours = 24.0         # Maximum process duration threshold
+min_confidence_threshold = 0.7    # Minimum confidence for detection
+```
+
+**Pattern Matching:**
+```toml
+[patterns]
+crypto_miner_patterns = ["cuda", "opencl", "miner", "hash"]
+suspicious_process_names = ["xmrig", "ccminer", "ethminer"]
+user_whitelist = ["root", "admin", "system"]
+process_whitelist = ["python", "jupyter", "tensorflow"]
+```
+
+**Risk Scoring:**
+```toml
+[scoring.threat_weights]
+crypto_miner = 0.8
+suspicious_process = 0.6
+resource_abuser = 0.3
+data_exfiltrator = 0.9
+
+[scoring.risk_thresholds]
+critical = 0.9
+high = 0.7
+medium = 0.5
+low = 0.3
+```
+
+### Detection Examples
+
+**Basic Detection:**
+```bash
+# Scan for suspicious activity in last 24 hours
+gpukill --audit --rogue
+
+# Scan last 48 hours with JSON output
+gpukill --audit --rogue --audit-hours 48 --output json
+```
+
+**Configuration Management:**
+```bash
+# View current configuration
+gpukill --audit --rogue-config
+
+# Update thresholds
+gpukill --audit --rogue-memory-threshold 15.0
+gpukill --audit --rogue-utilization-threshold 90.0
+
+# Manage whitelists
+gpukill --audit --rogue-whitelist-process "my-app"
+gpukill --audit --rogue-whitelist-user "developer"
+```
+
+**Configuration Export/Import:**
+```bash
+# Export configuration
+gpukill --audit --rogue-export-config > security-config.json
+
+# Import configuration
+gpukill --audit --rogue-import-config security-config.json
+```
+
+### Dashboard Integration
+
+The suspicious usage detection is fully integrated with the web dashboard:
+
+**Rogue Activity Panel:**
+- Real-time risk score visualization
+- Color-coded threat indicators
+- Detailed threat breakdown
+- Interactive "Scan for Threats" button
+
+**Threat Visualization:**
+- 🚨 **Crypto Miners**: Red alerts with confidence scores
+- ⚠️ **Suspicious Processes**: Yellow warnings with risk levels
+- 📊 **Resource Abusers**: Orange notifications with severity
+- ✅ **All Clear**: Green confirmation when no threats detected
+
+**Recommendations:**
+- Actionable security advice
+- Process termination suggestions
+- Configuration recommendations
+- Best practice guidance
+
 **JSON Output:**
 ```bash
 # Export audit data as JSON for external processing
@@ -486,6 +680,148 @@ cp ~/.local/share/gpukill/audit.jsonl gpu_audit_backup.jsonl
 # Restore audit data
 cp gpu_audit_backup.jsonl ~/.local/share/gpukill/audit.jsonl
 ```
+
+## Cluster Management
+
+GPU Kill includes a powerful cluster management system that allows you to monitor and manage multiple GPU nodes from a central coordinator.
+
+### Coordinator API
+
+The coordinator is a RESTful API server that aggregates data from multiple GPU nodes and provides real-time cluster monitoring.
+
+#### Starting the Coordinator
+
+```bash
+# Start coordinator on default port 8080
+gpukill --server
+
+# Start on custom port
+gpukill --server --server-port 9000
+
+# Start on all interfaces
+gpukill --server --server-host 0.0.0.0
+```
+
+#### API Endpoints
+
+- `GET /api/nodes` - List all registered nodes
+- `POST /api/nodes/:id/register` - Register a new node
+- `POST /api/nodes/:id/snapshot` - Update node snapshot
+- `GET /api/cluster/snapshot` - Get cluster-wide snapshot
+- `GET /api/cluster/contention` - Get GPU contention analysis
+- `WS /ws` - WebSocket for real-time updates
+
+#### Node Registration
+
+Nodes automatically register themselves when they start the coordinator. Each node:
+- Generates a unique UUID
+- Reports hostname and IP address
+- Sends periodic snapshots of GPU and process data
+- Maintains heartbeat for health monitoring
+
+### Magic Moment Analysis
+
+The "Magic Moment" feature provides instant identification of GPU contention and resource blocking:
+
+- **Blocked GPUs**: GPUs with high utilization that are blocking other users
+- **Top Users**: Users ranked by GPU memory usage and utilization
+- **Contention Recommendations**: Suggestions for optimizing GPU allocation
+- **Real-time Updates**: Live updates via WebSocket connections
+
+## Remote Operations
+
+GPU Kill supports SSH-based remote management, allowing you to control GPUs across distributed systems.
+
+### SSH Configuration
+
+```bash
+# Basic remote connection
+gpukill --remote staging-server --list
+
+# With custom SSH options
+gpukill --remote server --ssh-user admin --ssh-port 2222 --list
+gpukill --remote server --ssh-key ~/.ssh/id_rsa --list
+gpukill --remote server --ssh-password mypassword --list
+```
+
+### Remote Authentication
+
+- **SSH Keys**: Preferred method for automated operations
+- **Password**: Interactive or provided via command line
+- **SSH Agent**: Uses system SSH agent for key management
+- **Custom Ports**: Support for non-standard SSH ports
+
+### Remote Requirements
+
+- SSH access to remote host
+- `gpukill` installed on remote host
+- Proper SSH key permissions (`chmod 600 ~/.ssh/id_rsa`)
+- Network connectivity to remote host
+
+### Remote Operations
+
+All local operations work remotely:
+
+```bash
+# Remote monitoring
+gpukill --remote server --list --details --watch
+
+# Remote process management
+gpukill --remote server --kill --pid 1234
+gpukill --remote server --kill --filter "python.*" --batch
+
+# Remote GPU control
+gpukill --remote server --reset --gpu 0
+gpukill --remote server --reset --all
+
+# Remote auditing
+gpukill --remote server --audit --audit-summary
+```
+
+## Dashboard
+
+The GPU Kill dashboard is a modern web interface built with Nuxt.js and Tailwind CSS for real-time cluster monitoring.
+
+### Features
+
+- **Real-time Updates**: Live data via WebSocket connections
+- **Cluster Overview**: Total nodes, GPUs, memory, and utilization
+- **Magic Moment View**: Instant identification of GPU contention
+- **Node Details**: Individual node status and GPU information
+- **Dark Mode**: Toggle between light and dark themes
+- **Responsive Design**: Works on desktop and mobile devices
+
+### Accessing the Dashboard
+
+1. Start the coordinator: `gpukill --server`
+2. Open your browser to `http://localhost:8080`
+3. View real-time cluster data and GPU contention
+
+### Dashboard Components
+
+#### Cluster Overview
+- Total number of nodes
+- Total GPUs across cluster
+- Total memory capacity
+- Average utilization
+
+#### Magic Moment
+- Blocked GPUs with high utilization
+- Top users by GPU memory usage
+- Real-time contention analysis
+
+#### Node Details
+- Individual node status
+- GPU utilization and memory usage
+- Process information
+- Last seen timestamps
+
+### WebSocket Integration
+
+The dashboard uses WebSocket connections for real-time updates:
+- Automatic reconnection on connection loss
+- Live data streaming from coordinator
+- Efficient binary protocol for minimal bandwidth usage
 
 ## Output Formats
 

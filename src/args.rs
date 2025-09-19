@@ -102,6 +102,114 @@ pub struct Cli {
     #[arg(long, requires = "audit")]
     pub audit_summary: bool,
 
+    /// Detect suspicious/rogue GPU usage patterns
+    #[arg(long, requires = "audit")]
+    pub rogue: bool,
+
+    /// Show rogue detection configuration
+    #[arg(long, requires = "audit")]
+    pub rogue_config: bool,
+
+    /// Update rogue detection thresholds
+    #[arg(long, requires = "audit", value_name = "MEMORY_GB")]
+    pub rogue_memory_threshold: Option<f32>,
+
+    /// Update rogue detection utilization threshold
+    #[arg(long, requires = "audit", value_name = "PERCENT")]
+    pub rogue_utilization_threshold: Option<f32>,
+
+    /// Update rogue detection duration threshold
+    #[arg(long, requires = "audit", value_name = "HOURS")]
+    pub rogue_duration_threshold: Option<f32>,
+
+    /// Update rogue detection confidence threshold
+    #[arg(long, requires = "audit", value_name = "CONFIDENCE")]
+    pub rogue_confidence_threshold: Option<f32>,
+
+    /// Add process to rogue detection whitelist
+    #[arg(long, requires = "audit", value_name = "PROCESS_NAME")]
+    pub rogue_whitelist_process: Option<String>,
+
+    /// Remove process from rogue detection whitelist
+    #[arg(long, requires = "audit", value_name = "PROCESS_NAME")]
+    pub rogue_unwhitelist_process: Option<String>,
+
+    /// Add user to rogue detection whitelist
+    #[arg(long, requires = "audit", value_name = "USERNAME")]
+    pub rogue_whitelist_user: Option<String>,
+
+    /// Remove user from rogue detection whitelist
+    #[arg(long, requires = "audit", value_name = "USERNAME")]
+    pub rogue_unwhitelist_user: Option<String>,
+
+    /// Export rogue detection configuration to JSON
+    #[arg(long, requires = "audit")]
+    pub rogue_export_config: bool,
+
+    /// Import rogue detection configuration from JSON file
+    #[arg(long, requires = "audit", value_name = "FILE_PATH")]
+    pub rogue_import_config: Option<String>,
+
+    /// Enable Guard Mode (soft policy enforcement)
+    #[arg(long)]
+    pub guard: bool,
+
+    /// Show Guard Mode configuration
+    #[arg(long, requires = "guard")]
+    pub guard_config: bool,
+
+    /// Enable Guard Mode
+    #[arg(long, requires = "guard")]
+    pub guard_enable: bool,
+
+    /// Disable Guard Mode
+    #[arg(long, requires = "guard")]
+    pub guard_disable: bool,
+
+    /// Set Guard Mode to dry-run (no enforcement)
+    #[arg(long, requires = "guard")]
+    pub guard_dry_run: bool,
+
+    /// Set Guard Mode to enforce policies
+    #[arg(long, requires = "guard")]
+    pub guard_enforce: bool,
+
+    /// Add user policy for Guard Mode
+    #[arg(long, requires = "guard", value_name = "USERNAME")]
+    pub guard_add_user: Option<String>,
+
+    /// Remove user policy from Guard Mode
+    #[arg(long, requires = "guard", value_name = "USERNAME")]
+    pub guard_remove_user: Option<String>,
+
+    /// Set memory limit for user (GB)
+    #[arg(long, requires = "guard", value_name = "GB")]
+    pub guard_memory_limit: Option<f32>,
+
+    /// Set utilization limit for user (%)
+    #[arg(long, requires = "guard", value_name = "PERCENT")]
+    pub guard_utilization_limit: Option<f32>,
+
+    /// Set concurrent process limit for user
+    #[arg(long, requires = "guard", value_name = "COUNT")]
+    pub guard_process_limit: Option<u32>,
+
+    /// Export Guard Mode configuration to JSON
+    #[arg(long, requires = "guard")]
+    pub guard_export_config: bool,
+
+    /// Import Guard Mode configuration from JSON file
+    #[arg(long, requires = "guard", value_name = "FILE_PATH")]
+    pub guard_import_config: Option<String>,
+
+    /// Test policies in dry-run mode (simulate enforcement)
+    #[arg(long, requires = "guard")]
+    pub guard_test_policies: bool,
+
+    /// Toggle dry-run mode on/off
+    #[arg(long, requires = "guard")]
+    pub guard_toggle_dry_run: bool,
+
     /// Server port for coordinator API
     #[arg(long, requires = "server", default_value = "8080")]
     pub server_port: u16,
@@ -109,6 +217,30 @@ pub struct Cli {
     /// Server host for coordinator API
     #[arg(long, requires = "server", default_value = "0.0.0.0")]
     pub server_host: String,
+
+    /// Remote host to connect to via SSH
+    #[arg(long)]
+    pub remote: Option<String>,
+
+    /// SSH username (defaults to current user)
+    #[arg(long, requires = "remote")]
+    pub ssh_user: Option<String>,
+
+    /// SSH port (defaults to 22)
+    #[arg(long, requires = "remote", default_value = "22")]
+    pub ssh_port: u16,
+
+    /// SSH private key path
+    #[arg(long, requires = "remote")]
+    pub ssh_key: Option<String>,
+
+    /// SSH password (interactive prompt if not provided)
+    #[arg(long, requires = "remote")]
+    pub ssh_password: Option<String>,
+
+    /// SSH connection timeout in seconds
+    #[arg(long, requires = "remote", default_value = "30")]
+    pub ssh_timeout: u16,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -179,13 +311,13 @@ impl Cli {
     /// Validate argument combinations
     fn validate(&self) {
         // Check that exactly one operation is specified
-        let operation_count = [self.list, self.kill, self.reset, self.audit, self.server].iter().filter(|&&x| x).count();
+        let operation_count = [self.list, self.kill, self.reset, self.audit, self.server, self.guard].iter().filter(|&&x| x).count();
         if operation_count == 0 {
-            eprintln!("Error: Exactly one of --list, --kill, --reset, --audit, or --server must be specified");
+            eprintln!("Error: Exactly one of --list, --kill, --reset, --audit, --server, or --guard must be specified");
             std::process::exit(3);
         }
         if operation_count > 1 {
-            eprintln!("Error: Only one of --list, --kill, --reset, --audit, or --server can be specified");
+            eprintln!("Error: Only one of --list, --kill, --reset, --audit, --server, or --guard can be specified");
             std::process::exit(3);
         }
 

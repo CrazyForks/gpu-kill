@@ -16,10 +16,14 @@ mod args;
 mod audit;
 mod config;
 mod coordinator;
+mod guard_mode;
 mod nvml_api;
 mod proc;
 mod process_mgmt;
+mod remote;
 mod render;
+mod rogue_config;
+mod rogue_detection;
 mod util;
 mod vendor;
 mod version;
@@ -89,7 +93,12 @@ fn init_logging(log_level: &str) -> Result<()> {
 
 /// Execute the requested operation
 async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManager) -> Result<()> {
-    // Initialize GPU manager
+    // Check if this is a remote operation
+    if let Some(remote_host) = cli.remote.clone() {
+        return execute_remote_operation(cli, &remote_host).await;
+    }
+
+    // Initialize GPU manager for local operations
     let gpu_manager = GpuManager::initialize()
         .context("Failed to initialize GPU manager")?;
 
@@ -117,11 +126,13 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
         execute_reset_operation(cli.gpu, cli.all, cli.force, gpu_manager, config_manager)
     } else if cli.audit {
         execute_audit_operation(
-            cli.audit_user,
-            cli.audit_process,
+            cli.audit_user.clone(),
+            cli.audit_process.clone(),
             cli.audit_hours,
             cli.audit_summary,
-            cli.output,
+            cli.rogue,
+            &cli,
+            cli.output.clone(),
         ).await
     } else if cli.server {
         execute_server_operation(
@@ -129,6 +140,8 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
             cli.server_port,
             gpu_manager,
         ).await
+    } else if cli.guard {
+        execute_guard_operation(&cli, gpu_manager).await
     } else {
         Err(anyhow::anyhow!("No operation specified"))
     }
@@ -437,14 +450,204 @@ async fn execute_audit_operation(
     process_filter: Option<String>,
     hours: u32,
     summary: bool,
+    rogue: bool,
+    cli: &crate::args::Cli,
     output_format: crate::args::OutputFormat,
 ) -> Result<()> {
-    use gpukill::audit::AuditManager;
+    use crate::audit::AuditManager;
     use crate::render::{render_info, render_warning};
 
     // Initialize audit manager
     let audit_manager = AuditManager::new().await
         .context("Failed to initialize audit manager")?;
+
+    // Handle configuration management
+    if cli.rogue_config || 
+       cli.rogue_memory_threshold.is_some() || 
+       cli.rogue_utilization_threshold.is_some() || 
+       cli.rogue_duration_threshold.is_some() || 
+       cli.rogue_confidence_threshold.is_some() ||
+       cli.rogue_whitelist_process.is_some() ||
+       cli.rogue_unwhitelist_process.is_some() ||
+       cli.rogue_whitelist_user.is_some() ||
+       cli.rogue_unwhitelist_user.is_some() ||
+       cli.rogue_export_config ||
+       cli.rogue_import_config.is_some() {
+        
+        use crate::rogue_config::RogueConfigManager;
+        
+        let mut config_manager = RogueConfigManager::new()
+            .context("Failed to initialize rogue config manager")?;
+
+        // Show current configuration
+        if cli.rogue_config {
+            let config = config_manager.get_config();
+            if output_format == crate::args::OutputFormat::Json {
+                let json = config_manager.export_to_json()
+                    .context("Failed to export config to JSON")?;
+                println!("{}", json);
+            } else {
+                render_info("🕵️ Rogue Detection Configuration:");
+                render_info(&format!("  Memory Threshold: {:.1} GB", config.detection.max_memory_usage_gb));
+                render_info(&format!("  Utilization Threshold: {:.1}%", config.detection.max_utilization_pct));
+                render_info(&format!("  Duration Threshold: {:.1} hours", config.detection.max_duration_hours));
+                render_info(&format!("  Confidence Threshold: {:.2}", config.detection.min_confidence_threshold));
+                render_info(&format!("  Crypto Miners: {}", if config.detection.enabled_detections.crypto_miners { "enabled" } else { "disabled" }));
+                render_info(&format!("  Suspicious Processes: {}", if config.detection.enabled_detections.suspicious_processes { "enabled" } else { "disabled" }));
+                render_info(&format!("  Resource Abusers: {}", if config.detection.enabled_detections.resource_abusers { "enabled" } else { "disabled" }));
+                render_info(&format!("  Data Exfiltrators: {}", if config.detection.enabled_detections.data_exfiltrators { "enabled" } else { "disabled" }));
+                
+                render_info("\n📋 Whitelisted Users:");
+                for user in &config.patterns.user_whitelist {
+                    render_info(&format!("  - {}", user));
+                }
+                
+                render_info("\n📋 Whitelisted Processes:");
+                for process in &config.patterns.process_whitelist {
+                    render_info(&format!("  - {}", process));
+                }
+                
+                render_info(&format!("\n📁 Config file: {}", config_manager.get_config_file_path().display()));
+            }
+        }
+
+        // Update thresholds
+        if cli.rogue_memory_threshold.is_some() || 
+           cli.rogue_utilization_threshold.is_some() || 
+           cli.rogue_duration_threshold.is_some() || 
+           cli.rogue_confidence_threshold.is_some() {
+            
+            config_manager.update_thresholds(
+                cli.rogue_memory_threshold,
+                cli.rogue_utilization_threshold,
+                cli.rogue_duration_threshold,
+                cli.rogue_confidence_threshold,
+            ).context("Failed to update thresholds")?;
+            
+            render_info("✅ Rogue detection thresholds updated successfully");
+        }
+
+        // Manage whitelists
+        if let Some(process) = &cli.rogue_whitelist_process {
+            config_manager.add_process_to_whitelist(process.clone())
+                .context("Failed to add process to whitelist")?;
+            render_info(&format!("✅ Added '{}' to process whitelist", process));
+        }
+
+        if let Some(process) = &cli.rogue_unwhitelist_process {
+            config_manager.remove_process_from_whitelist(process)
+                .context("Failed to remove process from whitelist")?;
+            render_info(&format!("✅ Removed '{}' from process whitelist", process));
+        }
+
+        if let Some(user) = &cli.rogue_whitelist_user {
+            config_manager.add_user_to_whitelist(user.clone())
+                .context("Failed to add user to whitelist")?;
+            render_info(&format!("✅ Added '{}' to user whitelist", user));
+        }
+
+        if let Some(user) = &cli.rogue_unwhitelist_user {
+            config_manager.remove_user_from_whitelist(user)
+                .context("Failed to remove user from whitelist")?;
+            render_info(&format!("✅ Removed '{}' from user whitelist", user));
+        }
+
+        // Export configuration
+        if cli.rogue_export_config {
+            let json = config_manager.export_to_json()
+                .context("Failed to export config to JSON")?;
+            println!("{}", json);
+        }
+
+        // Import configuration
+        if let Some(file_path) = &cli.rogue_import_config {
+            let content = std::fs::read_to_string(file_path)
+                .context("Failed to read import file")?;
+            config_manager.import_from_json(&content)
+                .context("Failed to import config from JSON")?;
+            render_info(&format!("✅ Imported configuration from: {}", file_path));
+        }
+
+        return Ok(());
+    }
+
+    if rogue {
+        // Perform rogue activity detection
+        use crate::rogue_detection::RogueDetector;
+        use crate::rogue_config::RogueConfigManager;
+        
+        let config_manager = RogueConfigManager::new()
+            .context("Failed to initialize rogue config manager")?;
+        
+        let detector = RogueDetector::with_config(audit_manager, &config_manager);
+        let result = detector.detect_rogue_activity(hours).await
+            .context("Failed to perform rogue detection")?;
+
+        if output_format == crate::args::OutputFormat::Json {
+            // JSON output
+            let json = serde_json::to_string_pretty(&result)
+                .context("Failed to serialize rogue detection results to JSON")?;
+            println!("{}", json);
+        } else {
+            // Table output
+            render_info(&format!("🕵️ Rogue Activity Detection Results (Last {} hours)", hours));
+            render_info(&format!("Overall Risk Score: {:.2}/1.0", result.risk_score));
+            
+            if !result.crypto_miners.is_empty() {
+                render_warning(&format!("🚨 CRITICAL: {} crypto miners detected!", result.crypto_miners.len()));
+                for (i, miner) in result.crypto_miners.iter().enumerate() {
+                    render_warning(&format!("  {}. PID {}: {} (confidence: {:.2})", 
+                        i + 1, miner.process.pid, miner.process.proc_name, miner.confidence));
+                    for indicator in &miner.mining_indicators {
+                        render_info(&format!("     - {}", indicator));
+                    }
+                }
+            }
+
+            if !result.suspicious_processes.is_empty() {
+                render_warning(&format!("⚠️ {} suspicious processes detected!", result.suspicious_processes.len()));
+                for (i, process) in result.suspicious_processes.iter().enumerate() {
+                    let risk_emoji = match process.risk_level {
+                        crate::rogue_detection::RiskLevel::Critical => "🚨",
+                        crate::rogue_detection::RiskLevel::High => "⚠️",
+                        crate::rogue_detection::RiskLevel::Medium => "⚡",
+                        crate::rogue_detection::RiskLevel::Low => "ℹ️",
+                    };
+                    render_warning(&format!("  {}. {} PID {}: {} (confidence: {:.2})", 
+                        i + 1, risk_emoji, process.process.pid, process.process.proc_name, process.confidence));
+                    for reason in &process.reasons {
+                        render_info(&format!("     - {}", reason));
+                    }
+                }
+            }
+
+            if !result.resource_abusers.is_empty() {
+                render_warning(&format!("📊 {} resource abusers detected!", result.resource_abusers.len()));
+                for (i, abuser) in result.resource_abusers.iter().enumerate() {
+                    let abuse_type = match abuser.abuse_type {
+                        crate::rogue_detection::AbuseType::MemoryHog => "Memory Hog",
+                        crate::rogue_detection::AbuseType::LongRunning => "Long Running",
+                        crate::rogue_detection::AbuseType::ExcessiveUtilization => "Excessive Utilization",
+                        crate::rogue_detection::AbuseType::UnauthorizedAccess => "Unauthorized Access",
+                    };
+                    render_warning(&format!("  {}. PID {}: {} - {} (severity: {:.2})", 
+                        i + 1, abuser.process.pid, abuser.process.proc_name, abuse_type, abuser.severity));
+                }
+            }
+
+            if result.crypto_miners.is_empty() && result.suspicious_processes.is_empty() && result.resource_abusers.is_empty() {
+                render_info("✅ No suspicious activity detected!");
+            }
+
+            if !result.recommendations.is_empty() {
+                render_info("\n📋 Recommendations:");
+                for recommendation in &result.recommendations {
+                    render_info(&format!("  {}", recommendation));
+                }
+            }
+        }
+        return Ok(());
+    }
 
     if summary {
         // Show audit summary
@@ -628,6 +831,303 @@ async fn execute_server_operation(
     serve(listener, app)
         .await
         .context("Failed to start server")?;
+
+    Ok(())
+}
+
+/// Execute operation on remote host via SSH
+async fn execute_remote_operation(cli: Cli, remote_host: &str) -> Result<()> {
+    use crate::remote::{SshConfig, execute_remote_operation as remote_exec};
+    use std::time::Duration;
+
+    info!("Executing remote operation on {}", remote_host);
+
+    // Build SSH configuration
+    let username = cli.ssh_user.unwrap_or_else(|| {
+        std::env::var("USER").unwrap_or_else(|_| "root".to_string())
+    });
+
+    let mut ssh_config = SshConfig::new(
+        remote_host.to_string(),
+        cli.ssh_port,
+        username,
+    ).with_timeout(Duration::from_secs(cli.ssh_timeout as u64));
+
+    // Add authentication options
+    if let Some(key_path) = &cli.ssh_key {
+        ssh_config = ssh_config.with_key_path(key_path.clone());
+    }
+
+    if let Some(password) = &cli.ssh_password {
+        ssh_config = ssh_config.with_password(password.clone());
+    }
+
+    // Build command arguments for remote execution
+    let mut remote_args = Vec::new();
+
+    // Add operation flags
+    if cli.list {
+        remote_args.push("--list".to_string());
+        if cli.details {
+            remote_args.push("--details".to_string());
+        }
+        if cli.watch {
+            remote_args.push("--watch".to_string());
+        }
+        if cli.containers {
+            remote_args.push("--containers".to_string());
+        }
+    } else if cli.kill {
+        remote_args.push("--kill".to_string());
+        if let Some(pid) = cli.pid {
+            remote_args.push("--pid".to_string());
+            remote_args.push(pid.to_string());
+        }
+        if let Some(filter) = &cli.filter {
+            remote_args.push("--filter".to_string());
+            remote_args.push(filter.clone());
+        }
+        if cli.batch {
+            remote_args.push("--batch".to_string());
+        }
+        if cli.force {
+            remote_args.push("--force".to_string());
+        }
+        remote_args.push("--timeout-secs".to_string());
+        remote_args.push(cli.timeout_secs.to_string());
+    } else if cli.reset {
+        remote_args.push("--reset".to_string());
+        if let Some(gpu_id) = cli.gpu {
+            remote_args.push("--gpu".to_string());
+            remote_args.push(gpu_id.to_string());
+        }
+        if cli.all {
+            remote_args.push("--all".to_string());
+        }
+        if cli.force {
+            remote_args.push("--force".to_string());
+        }
+    } else if cli.audit {
+        remote_args.push("--audit".to_string());
+        if let Some(user) = &cli.audit_user {
+            remote_args.push("--audit-user".to_string());
+            remote_args.push(user.clone());
+        }
+        if let Some(process) = &cli.audit_process {
+            remote_args.push("--audit-process".to_string());
+            remote_args.push(process.clone());
+        }
+        remote_args.push("--audit-hours".to_string());
+        remote_args.push(cli.audit_hours.to_string());
+        if cli.audit_summary {
+            remote_args.push("--audit-summary".to_string());
+        }
+    } else if cli.server {
+        return Err(anyhow::anyhow!("Server mode cannot be used with remote operations"));
+    }
+
+    // Add output format
+    match cli.output {
+        crate::args::OutputFormat::Json => {
+            remote_args.push("--output".to_string());
+            remote_args.push("json".to_string());
+        }
+        crate::args::OutputFormat::Table => {
+            // Table is default, no need to specify
+        }
+    }
+
+    // Add vendor filter if specified
+    if let Some(vendor) = &cli.vendor {
+        remote_args.push("--vendor".to_string());
+        remote_args.push(format!("{:?}", vendor).to_lowercase());
+    }
+
+    // Execute the remote operation
+    remote_exec(ssh_config, &remote_args)?;
+
+    Ok(())
+}
+
+/// Execute Guard Mode operation
+async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::vendor::GpuManager) -> Result<()> {
+    use crate::guard_mode::GuardModeManager;
+    use crate::render::render_info;
+
+    // Initialize guard mode manager
+    let mut guard_manager = GuardModeManager::new()
+        .context("Failed to initialize Guard Mode manager")?;
+
+    // Handle configuration management
+    if cli.guard_config || 
+       cli.guard_enable || 
+       cli.guard_disable || 
+       cli.guard_dry_run || 
+       cli.guard_enforce ||
+       cli.guard_add_user.is_some() ||
+       cli.guard_remove_user.is_some() ||
+       cli.guard_memory_limit.is_some() ||
+       cli.guard_utilization_limit.is_some() ||
+       cli.guard_process_limit.is_some() ||
+       cli.guard_export_config ||
+       cli.guard_import_config.is_some() ||
+       cli.guard_test_policies ||
+       cli.guard_toggle_dry_run {
+        
+        // Show current configuration
+        if cli.guard_config {
+            let config = guard_manager.get_config();
+            render_info("🛡️ Guard Mode Configuration:");
+            render_info(&format!("  Enabled: {}", config.global.enabled));
+            render_info(&format!("  Dry Run: {}", config.global.dry_run));
+            render_info(&format!("  Default Memory Limit: {:.1} GB", config.global.default_memory_limit_gb));
+            render_info(&format!("  Default Utilization Limit: {:.1}%", config.global.default_utilization_limit_pct));
+            render_info(&format!("  Default Duration Limit: {:.1} hours", config.global.default_duration_limit_hours));
+            render_info(&format!("  Check Interval: {} seconds", config.global.check_interval_seconds));
+            
+            render_info(&format!("  Soft Enforcement: {}", config.enforcement.soft_enforcement));
+            render_info(&format!("  Hard Enforcement: {}", config.enforcement.hard_enforcement));
+            render_info(&format!("  Grace Period: {} seconds", config.enforcement.grace_period_seconds));
+            
+            render_info("\n👥 User Policies:");
+            for (username, policy) in &config.user_policies {
+                render_info(&format!("  - {}: {:.1}GB memory, {:.1}% util, {} processes", 
+                    username, policy.memory_limit_gb, policy.utilization_limit_pct, policy.max_concurrent_processes));
+            }
+            
+            render_info(&format!("\n📁 Config file: {}", guard_manager.get_config_file_path().display()));
+        }
+
+        // Enable/disable guard mode
+        if cli.guard_enable {
+            guard_manager.set_enabled(true)
+                .context("Failed to enable Guard Mode")?;
+            render_info("✅ Guard Mode enabled");
+        }
+
+        if cli.guard_disable {
+            guard_manager.set_enabled(false)
+                .context("Failed to disable Guard Mode")?;
+            render_info("✅ Guard Mode disabled");
+        }
+
+        // Set dry-run mode
+        if cli.guard_dry_run {
+            guard_manager.set_dry_run(true)
+                .context("Failed to set dry-run mode")?;
+            render_info("✅ Guard Mode set to dry-run (no enforcement)");
+        }
+
+        if cli.guard_enforce {
+            guard_manager.set_dry_run(false)
+                .context("Failed to set enforcement mode")?;
+            render_info("✅ Guard Mode set to enforce policies");
+        }
+
+        // Add user policy
+        if let Some(username) = &cli.guard_add_user {
+            let memory_limit = cli.guard_memory_limit.unwrap_or(16.0);
+            let utilization_limit = cli.guard_utilization_limit.unwrap_or(80.0);
+            let process_limit = cli.guard_process_limit.unwrap_or(5);
+
+            let user_policy = crate::guard_mode::UserPolicy {
+                username: username.clone(),
+                memory_limit_gb: memory_limit,
+                utilization_limit_pct: utilization_limit,
+                duration_limit_hours: 12.0,
+                max_concurrent_processes: process_limit,
+                priority: 5,
+                allowed_gpus: Vec::new(),
+                blocked_gpus: Vec::new(),
+                time_overrides: Vec::new(),
+            };
+
+            guard_manager.add_user_policy(user_policy)
+                .context("Failed to add user policy")?;
+            render_info(&format!("✅ Added policy for user '{}': {:.1}GB memory, {:.1}% util, {} processes", 
+                username, memory_limit, utilization_limit, process_limit));
+        }
+
+        // Remove user policy
+        if let Some(username) = &cli.guard_remove_user {
+            guard_manager.remove_user_policy(username)
+                .context("Failed to remove user policy")?;
+            render_info(&format!("✅ Removed policy for user '{}'", username));
+        }
+
+        // Export configuration
+        if cli.guard_export_config {
+            let json = guard_manager.export_to_json()
+                .context("Failed to export Guard Mode config to JSON")?;
+            println!("{}", json);
+        }
+
+        // Import configuration
+        if let Some(file_path) = &cli.guard_import_config {
+            let content = std::fs::read_to_string(file_path)
+                .context("Failed to read import file")?;
+            guard_manager.import_from_json(&content)
+                .context("Failed to import Guard Mode config from JSON")?;
+            render_info(&format!("✅ Imported Guard Mode configuration from: {}", file_path));
+        }
+
+        // Test policies in dry-run mode
+        if cli.guard_test_policies {
+            render_info("🧪 Testing policies in dry-run mode...");
+            
+            // Get current GPU processes for testing
+            let gpu_manager = crate::vendor::GpuManager::initialize()
+                .context("Failed to initialize GPU manager")?;
+            let test_processes = gpu_manager.get_all_processes()
+                .context("Failed to get GPU processes")?;
+            
+            let result = guard_manager.simulate_policy_check(&test_processes)
+                .context("Failed to simulate policy check")?;
+            
+            render_info(&format!("📊 Simulation Results:"));
+            render_info(&format!("  Violations found: {}", result.violations.len()));
+            render_info(&format!("  Warnings found: {}", result.warnings.len()));
+            render_info(&format!("  Actions simulated: {}", result.actions_taken.len()));
+            
+            if !result.violations.is_empty() {
+                render_info("\n🚨 Simulated Violations:");
+                for (i, violation) in result.violations.iter().enumerate() {
+                    render_info(&format!("  {}. {} - {:?} ({:?}): {}", 
+                        i + 1, violation.user, violation.violation_type, 
+                        violation.severity, violation.message));
+                }
+            }
+            
+            if !result.actions_taken.is_empty() {
+                render_info("\n⚡ Simulated Actions:");
+                for (i, action) in result.actions_taken.iter().enumerate() {
+                    render_info(&format!("  {}. {:?}: {}", 
+                        i + 1, action.action_type, action.message));
+                }
+            }
+            
+            if result.violations.is_empty() && result.warnings.is_empty() {
+                render_info("✅ No policy violations detected in simulation!");
+            }
+        }
+
+        // Toggle dry-run mode
+        if cli.guard_toggle_dry_run {
+            let new_dry_run = guard_manager.toggle_dry_run()
+                .context("Failed to toggle dry-run mode")?;
+            render_info(&format!("✅ Dry-run mode {} (simulation only)", 
+                if new_dry_run { "enabled" } else { "disabled" }));
+        }
+
+        return Ok(());
+    }
+
+    // If no specific guard operations, show help
+    render_info("🛡️ Guard Mode - Soft Policy Enforcement");
+    render_info("Use --guard-config to view current configuration");
+    render_info("Use --guard-enable to enable Guard Mode");
+    render_info("Use --guard-dry-run to test policies without enforcement");
+    render_info("Use --guard-add-user <username> to add user policies");
 
     Ok(())
 }
