@@ -5,12 +5,12 @@ use crate::nvml_api::{NvmlApi, Snapshot};
 use crate::proc::ProcessManager;
 use crate::process_mgmt::EnhancedProcessManager;
 use crate::render::{render_error, render_info, render_success, render_warning, Renderer};
-use crate::vendor::{GpuManager, GpuVendor};
+use crate::vendor::GpuManager;
 use crate::version::get_version_string;
 use anyhow::{Context, Result};
 use std::process;
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 mod args;
 mod audit;
@@ -142,6 +142,8 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
         ).await
     } else if cli.guard {
         execute_guard_operation(&cli, gpu_manager).await
+    } else if let Some(coordinator_url) = cli.register_node {
+        execute_register_node_operation(coordinator_url, gpu_manager).await
     } else {
         Err(anyhow::anyhow!("No operation specified"))
     }
@@ -180,18 +182,7 @@ async fn execute_single_list(
     // Filter by vendor if specified
     if let Some(filter) = vendor_filter {
         if let Some(target_vendor) = filter.to_gpu_vendor() {
-            // For now, we'll filter by vendor name in the GPU name
-            // This is a simplified approach - in a real implementation,
-            // we'd track vendor per GPU more precisely
-            gpus.retain(|gpu| {
-                match target_vendor {
-                    GpuVendor::Nvidia => gpu.name.contains("NVIDIA") || gpu.name.contains("GeForce") || gpu.name.contains("Tesla") || gpu.name.contains("Quadro"),
-                    GpuVendor::Amd => gpu.name.contains("AMD") || gpu.name.contains("Radeon"),
-                    GpuVendor::Intel => gpu.name.contains("Intel"),
-                    GpuVendor::Apple => gpu.name.contains("Apple") || gpu.name.contains("M1") || gpu.name.contains("M2") || gpu.name.contains("M3") || gpu.name.contains("M4"),
-                    _ => true,
-                }
-            });
+            gpus.retain(|gpu| gpu.vendor == target_vendor);
         }
     }
     
@@ -775,6 +766,9 @@ async fn execute_server_operation(
 
     // Initialize coordinator state
     let state = CoordinatorState::new();
+    
+    // Start background tasks for cluster management
+    state.start_background_tasks();
 
     // Register this node as the coordinator
     let node_id = uuid::Uuid::new_v4().to_string();
@@ -969,6 +963,16 @@ async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::ve
        cli.guard_memory_limit.is_some() ||
        cli.guard_utilization_limit.is_some() ||
        cli.guard_process_limit.is_some() ||
+       cli.guard_add_group.is_some() ||
+       cli.guard_remove_group.is_some() ||
+       cli.guard_add_gpu.is_some() ||
+       cli.guard_remove_gpu.is_some() ||
+       cli.guard_group_memory_limit.is_some() ||
+       cli.guard_group_utilization_limit.is_some() ||
+       cli.guard_group_process_limit.is_some() ||
+       cli.guard_gpu_memory_limit.is_some() ||
+       cli.guard_gpu_utilization_limit.is_some() ||
+       cli.guard_gpu_reserved_memory.is_some() ||
        cli.guard_export_config ||
        cli.guard_import_config.is_some() ||
        cli.guard_test_policies ||
@@ -993,6 +997,28 @@ async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::ve
             for (username, policy) in &config.user_policies {
                 render_info(&format!("  - {}: {:.1}GB memory, {:.1}% util, {} processes", 
                     username, policy.memory_limit_gb, policy.utilization_limit_pct, policy.max_concurrent_processes));
+            }
+            
+            render_info("\n👥 Group Policies:");
+            for (group_name, policy) in &config.group_policies {
+                let members_info = if !policy.members.is_empty() {
+                    format!(", {} members: {}", policy.members.len(), policy.members.join(", "))
+                } else {
+                    "".to_string()
+                };
+                render_info(&format!("  - {}: {:.1}GB memory, {:.1}% util, {} processes{}", 
+                    group_name, policy.total_memory_limit_gb, policy.total_utilization_limit_pct, policy.max_concurrent_processes, members_info));
+            }
+            
+            render_info("\n🖥️ GPU Policies:");
+            for (gpu_index, policy) in &config.gpu_policies {
+                let users_info = if !policy.allowed_users.is_empty() {
+                    format!(", {} allowed users: {}", policy.allowed_users.len(), policy.allowed_users.join(", "))
+                } else {
+                    "".to_string()
+                };
+                render_info(&format!("  - GPU {}: {:.1}GB memory, {:.1}% util, {:.1}GB reserved{}", 
+                    gpu_index, policy.max_memory_gb, policy.max_utilization_pct, policy.reserved_memory_gb, users_info));
             }
             
             render_info(&format!("\n📁 Config file: {}", guard_manager.get_config_file_path().display()));
@@ -1053,6 +1079,93 @@ async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::ve
             guard_manager.remove_user_policy(username)
                 .context("Failed to remove user policy")?;
             render_info(&format!("✅ Removed policy for user '{}'", username));
+        }
+
+        // Add group policy
+        if let Some(group_name) = &cli.guard_add_group {
+            let memory_limit = cli.guard_group_memory_limit.unwrap_or(32.0);
+            let utilization_limit = cli.guard_group_utilization_limit.unwrap_or(80.0);
+            let process_limit = cli.guard_group_process_limit.unwrap_or(10);
+            
+            // Parse members from comma-separated input
+            let members = if let Some(members_str) = &cli.guard_group_members {
+                members_str.split(',').map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect()
+            } else {
+                vec![]
+            };
+
+            let members_info = if !members.is_empty() {
+                format!(", {} members: {}", members.len(), members.join(", "))
+            } else {
+                "".to_string()
+            };
+
+            let group_policy = crate::guard_mode::GroupPolicy {
+                group_name: group_name.clone(),
+                total_memory_limit_gb: memory_limit,
+                total_utilization_limit_pct: utilization_limit,
+                max_concurrent_processes: process_limit,
+                priority: 5,
+                allowed_gpus: vec![],
+                blocked_gpus: vec![],
+                members,
+            };
+
+            guard_manager.add_group_policy(group_policy)
+                .context("Failed to add group policy")?;
+            
+            render_info(&format!("✅ Added policy for group '{}': {:.1}GB memory, {:.1}% util, {} processes{}", 
+                group_name, memory_limit, utilization_limit, process_limit, members_info));
+        }
+
+        // Remove group policy
+        if let Some(group_name) = &cli.guard_remove_group {
+            guard_manager.remove_group_policy(group_name)
+                .context("Failed to remove group policy")?;
+            render_info(&format!("✅ Removed policy for group '{}'", group_name));
+        }
+
+        // Add GPU policy
+        if let Some(gpu_index) = cli.guard_add_gpu {
+            let memory_limit = cli.guard_gpu_memory_limit.unwrap_or(24.0);
+            let utilization_limit = cli.guard_gpu_utilization_limit.unwrap_or(90.0);
+            let reserved_memory = cli.guard_gpu_reserved_memory.unwrap_or(2.0);
+            
+            // Parse allowed users from comma-separated input
+            let allowed_users = if let Some(users_str) = &cli.guard_gpu_allowed_users {
+                users_str.split(',').map(|u| u.trim().to_string()).filter(|u| !u.is_empty()).collect()
+            } else {
+                vec![]
+            };
+
+            let users_info = if !allowed_users.is_empty() {
+                format!(", {} allowed users: {}", allowed_users.len(), allowed_users.join(", "))
+            } else {
+                "".to_string()
+            };
+
+            let gpu_policy = crate::guard_mode::GpuPolicy {
+                gpu_index,
+                max_memory_gb: memory_limit,
+                max_utilization_pct: utilization_limit,
+                reserved_memory_gb: reserved_memory,
+                allowed_users,
+                blocked_users: vec![],
+                maintenance_window: None,
+            };
+
+            guard_manager.add_gpu_policy(gpu_policy)
+                .context("Failed to add GPU policy")?;
+            
+            render_info(&format!("✅ Added policy for GPU {}: {:.1}GB memory, {:.1}% util, {:.1}GB reserved{}", 
+                gpu_index, memory_limit, utilization_limit, reserved_memory, users_info));
+        }
+
+        // Remove GPU policy
+        if let Some(gpu_index) = cli.guard_remove_gpu {
+            guard_manager.remove_gpu_policy(gpu_index)
+                .context("Failed to remove GPU policy")?;
+            render_info(&format!("✅ Removed policy for GPU {}", gpu_index));
         }
 
         // Export configuration
@@ -1130,4 +1243,147 @@ async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::ve
     render_info("Use --guard-add-user <username> to add user policies");
 
     Ok(())
+}
+
+/// Execute node registration operation
+async fn execute_register_node_operation(
+    coordinator_url: String,
+    gpu_manager: GpuManager,
+) -> Result<()> {
+    use crate::coordinator::{NodeInfo, NodeSnapshot, NodeStatus};
+    use crate::render::render_info;
+    use reqwest::Client;
+    use std::collections::HashMap;
+    use uuid::Uuid;
+
+    info!("Registering node with coordinator: {}", coordinator_url);
+
+    // Get node information
+    let node_id = Uuid::new_v4().to_string();
+    let hostname = crate::util::get_hostname();
+    let ip_address = "127.0.0.1".to_string(); // Simplified for now
+    
+    // Get GPU information
+    let gpus = gpu_manager.get_all_snapshots()
+        .context("Failed to get GPU snapshots")?;
+    let procs = gpu_manager.get_all_processes()
+        .context("Failed to get GPU processes")?;
+    
+    let total_memory_gb: f32 = gpus.iter()
+        .map(|gpu| gpu.mem_total_mb as f32 / 1024.0)
+        .sum();
+
+    // Create node info
+    let node_info = NodeInfo {
+        id: node_id.clone(),
+        hostname: hostname.clone(),
+        ip_address,
+        last_seen: chrono::Utc::now(),
+        status: NodeStatus::Online,
+        gpu_count: gpus.len() as u32,
+        total_memory_gb,
+        tags: HashMap::new(),
+    };
+
+    // Create node snapshot
+    let snapshot = NodeSnapshot {
+        node_id: node_id.clone(),
+        hostname,
+        timestamp: chrono::Utc::now(),
+        gpus,
+        processes: procs,
+        status: NodeStatus::Online,
+    };
+
+    let client = Client::new();
+    
+    // Register node
+    let register_url = format!("{}/api/nodes/{}/register", coordinator_url, node_id);
+    match client.post(&register_url)
+        .json(&node_info)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if response.status().is_success() {
+                render_info(&format!("✅ Successfully registered node {} with coordinator", node_id));
+            } else {
+                return Err(anyhow::anyhow!("Failed to register node: HTTP {}", response.status()));
+            }
+        }
+        Err(e) => {
+            return Err(anyhow::anyhow!("Failed to register node: {}", e));
+        }
+    }
+
+    // Send initial snapshot
+    let snapshot_url = format!("{}/api/nodes/{}/snapshot", coordinator_url, node_id);
+    match client.post(&snapshot_url)
+        .json(&snapshot)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if response.status().is_success() {
+                render_info("✅ Successfully sent initial snapshot to coordinator");
+            } else {
+                return Err(anyhow::anyhow!("Failed to send snapshot: HTTP {}", response.status()));
+            }
+        }
+        Err(e) => {
+            return Err(anyhow::anyhow!("Failed to send snapshot: {}", e));
+        }
+    }
+
+    // Start periodic snapshot updates
+    render_info("🔄 Starting periodic snapshot updates...");
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    
+    loop {
+        interval.tick().await;
+        
+        // Get fresh snapshot
+        let gpus = match gpu_manager.get_all_snapshots() {
+            Ok(gpus) => gpus,
+            Err(e) => {
+                warn!("Failed to get GPU snapshots: {}", e);
+                continue;
+            }
+        };
+        
+        let procs = match gpu_manager.get_all_processes() {
+            Ok(procs) => procs,
+            Err(e) => {
+                warn!("Failed to get GPU processes: {}", e);
+                continue;
+            }
+        };
+
+        let snapshot = NodeSnapshot {
+            node_id: node_id.clone(),
+            hostname: node_info.hostname.clone(),
+            timestamp: chrono::Utc::now(),
+            gpus,
+            processes: procs,
+            status: NodeStatus::Online,
+        };
+
+        // Send snapshot
+        match client.post(&snapshot_url)
+            .json(&snapshot)
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if response.status().is_success() {
+                    debug!("Successfully sent snapshot update");
+                } else {
+                    warn!("Failed to send snapshot update: HTTP {}", response.status());
+                }
+            }
+            Err(e) => {
+                warn!("Failed to send snapshot update: {}", e);
+            }
+        }
+    }
 }

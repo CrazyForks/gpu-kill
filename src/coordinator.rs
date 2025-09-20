@@ -107,6 +107,27 @@ impl CoordinatorState {
         }
     }
 
+    /// Start background tasks for cluster management
+    pub fn start_background_tasks(&self) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                
+                // Clean up stale nodes
+                if let Err(e) = state.cleanup_stale_nodes().await {
+                    tracing::warn!("Failed to cleanup stale nodes: {}", e);
+                }
+                
+                // Update cluster snapshot
+                if let Err(e) = state.update_cluster_snapshot().await {
+                    tracing::warn!("Failed to update cluster snapshot: {}", e);
+                }
+            }
+        });
+    }
+
     /// Register or update a node
     pub async fn register_node(&self, node_info: NodeInfo) -> Result<()> {
         let mut nodes = self.nodes.write().await;
@@ -146,6 +167,61 @@ impl CoordinatorState {
     pub async fn get_cluster_snapshot(&self) -> Option<ClusterSnapshot> {
         let snapshot = self.last_cluster_snapshot.read().await;
         snapshot.clone()
+    }
+
+    /// Build cluster snapshot from current node data
+    pub async fn build_cluster_snapshot(&self) -> Result<ClusterSnapshot> {
+        let nodes = self.nodes.read().await;
+        let snapshots = self.snapshots.read().await;
+        
+        let mut node_snapshots = Vec::new();
+        let mut total_gpus = 0;
+        let mut total_memory_gb = 0.0;
+        let mut active_processes = 0;
+        let mut total_utilization = 0.0;
+        let mut gpu_count = 0;
+
+        for (node_id, node_info) in nodes.iter() {
+            if let Some(snapshot) = snapshots.get(node_id) {
+                let node_snapshot = NodeSnapshot {
+                    node_id: node_id.clone(),
+                    hostname: node_info.hostname.clone(),
+                    timestamp: snapshot.timestamp.clone(),
+                    gpus: snapshot.gpus.clone(),
+                    processes: snapshot.processes.clone(),
+                    status: node_info.status.clone(),
+                };
+                
+                node_snapshots.push(node_snapshot);
+                
+                total_gpus += snapshot.gpus.len() as u32;
+                for gpu in &snapshot.gpus {
+                    total_memory_gb += gpu.mem_total_mb as f32 / 1024.0;
+                    total_utilization += gpu.util_pct;
+                    gpu_count += 1;
+                }
+                active_processes += snapshot.processes.len() as u32;
+            }
+        }
+
+        let utilization_avg = if gpu_count > 0 { total_utilization / gpu_count as f32 } else { 0.0 };
+
+        Ok(ClusterSnapshot {
+            timestamp: Utc::now(),
+            nodes: node_snapshots,
+            total_gpus,
+            total_memory_gb,
+            active_processes,
+            utilization_avg,
+        })
+    }
+
+    /// Update cluster snapshot and cache it
+    pub async fn update_cluster_snapshot(&self) -> Result<()> {
+        let snapshot = self.build_cluster_snapshot().await?;
+        let mut cached = self.last_cluster_snapshot.write().await;
+        *cached = Some(snapshot);
+        Ok(())
     }
 
     /// Get contention analysis (Magic Moment)
@@ -225,44 +301,6 @@ impl CoordinatorState {
         })
     }
 
-    /// Update cluster snapshot from current node snapshots
-    async fn update_cluster_snapshot(&self) -> Result<()> {
-        let snapshots = self.snapshots.read().await;
-        let _nodes = self.nodes.read().await;
-
-        let mut cluster_nodes = Vec::new();
-        let mut total_gpus = 0;
-        let mut total_memory_gb = 0.0;
-        let mut active_processes = 0;
-        let mut total_utilization = 0.0;
-        let mut gpu_count = 0;
-
-        for (_node_id, snapshot) in snapshots.iter() {
-            cluster_nodes.push(snapshot.clone());
-            total_gpus += snapshot.gpus.len() as u32;
-            active_processes += snapshot.processes.len() as u32;
-
-            for gpu in &snapshot.gpus {
-                total_memory_gb += gpu.mem_total_mb as f32 / 1024.0;
-                total_utilization += gpu.util_pct;
-                gpu_count += 1;
-            }
-        }
-
-        let cluster_snapshot = ClusterSnapshot {
-            timestamp: Utc::now(),
-            nodes: cluster_nodes,
-            total_gpus,
-            total_memory_gb,
-            active_processes,
-            utilization_avg: if gpu_count > 0 { total_utilization / gpu_count as f32 } else { 0.0 },
-        };
-
-        let mut last_snapshot = self.last_cluster_snapshot.write().await;
-        *last_snapshot = Some(cluster_snapshot);
-
-        Ok(())
-    }
 
     /// Clean up stale nodes (offline for more than 5 minutes)
     pub async fn cleanup_stale_nodes(&self) -> Result<()> {
@@ -294,6 +332,7 @@ pub fn create_router(state: CoordinatorState) -> Router {
         .route("/api/cluster/snapshot", get(get_cluster_snapshot))
         .route("/api/cluster/contention", get(get_contention_analysis))
             .route("/api/cluster/rogue", get(get_rogue_analysis))
+        .route("/api/cluster/rogue/test", get(get_rogue_analysis_test))
             .route("/api/guard/config", get(get_guard_config))
             .route("/api/guard/config", post(update_guard_config))
             .route("/api/guard/policies", get(get_guard_policies))
@@ -361,6 +400,83 @@ async fn get_rogue_analysis(State(_state): State<CoordinatorState>) -> Result<Js
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     
     Ok(Json(result))
+}
+
+/// Get test rogue activity analysis with sample data
+async fn get_rogue_analysis_test() -> Result<Json<crate::rogue_detection::RogueDetectionResult>, StatusCode> {
+    use crate::rogue_detection::{RogueDetectionResult, SuspiciousProcess, CryptoMiner, ResourceAbuser, RiskLevel, AbuseType};
+    use crate::nvml_api::GpuProc;
+    use chrono::Utc;
+    
+    let test_result = RogueDetectionResult {
+        timestamp: Utc::now(),
+        suspicious_processes: vec![
+            SuspiciousProcess {
+                process: GpuProc {
+                    gpu_index: 0,
+                    pid: 12345,
+                    user: "hacker".to_string(),
+                    proc_name: "suspicious_miner".to_string(),
+                    used_mem_mb: 2048,
+                    start_time: "2025-09-20T01:00:00Z".to_string(),
+                    container: None,
+                },
+                reasons: vec![
+                    "High GPU utilization with low CPU usage".to_string(),
+                    "Process name contains mining keywords".to_string(),
+                    "Unusual memory allocation patterns".to_string(),
+                ],
+                confidence: 0.85,
+                risk_level: RiskLevel::High,
+            }
+        ],
+        crypto_miners: vec![
+            CryptoMiner {
+                process: GpuProc {
+                    gpu_index: 1,
+                    pid: 67890,
+                    user: "miner".to_string(),
+                    proc_name: "xmrig".to_string(),
+                    used_mem_mb: 1024,
+                    start_time: "2025-09-20T00:30:00Z".to_string(),
+                    container: None,
+                },
+                mining_indicators: vec![
+                    "Known cryptocurrency mining software".to_string(),
+                    "Extremely high GPU utilization".to_string(),
+                    "Long-running process with consistent resource usage".to_string(),
+                ],
+                confidence: 0.92,
+                estimated_hashrate: Some(150.5),
+            }
+        ],
+        resource_abusers: vec![
+            ResourceAbuser {
+                process: GpuProc {
+                    gpu_index: 2,
+                    pid: 11111,
+                    user: "abuser".to_string(),
+                    proc_name: "gpu_hog".to_string(),
+                    used_mem_mb: 8192,
+                    start_time: "2025-09-19T20:00:00Z".to_string(),
+                    container: None,
+                },
+                abuse_type: AbuseType::MemoryHog,
+                severity: 0.9,
+                duration_hours: 8.5,
+            }
+        ],
+        data_exfiltrators: vec![],
+        risk_score: 0.78,
+        recommendations: vec![
+            "🚨 Immediate action required: Terminate crypto mining processes".to_string(),
+            "⚠️ Review user 'miner' and 'hacker' accounts for unauthorized access".to_string(),
+            "🔍 Investigate process 'gpu_hog' for potential resource abuse".to_string(),
+            "📊 Consider implementing GPU usage quotas per user".to_string(),
+        ],
+    };
+    
+    Ok(Json(test_result))
 }
 
 /// WebSocket handler for real-time updates

@@ -29,6 +29,7 @@ pub struct GpuProc {
 pub struct GpuSnapshot {
     pub gpu_index: u16,
     pub name: String,
+    pub vendor: crate::vendor::GpuVendor,
     pub mem_used_mb: u32,
     pub mem_total_mb: u32,
     pub util_pct: f32,
@@ -140,6 +141,7 @@ impl NvmlApi {
         Ok(GpuSnapshot {
             gpu_index: index as u16,
             name,
+            vendor: crate::vendor::GpuVendor::Nvidia,
             mem_used_mb: (mem_info.used / 1024 / 1024) as u32,
             mem_total_mb: (mem_info.total / 1024 / 1024) as u32,
             util_pct: utilization.gpu as f32,

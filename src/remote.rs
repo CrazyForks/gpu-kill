@@ -95,7 +95,7 @@ impl SshRemote {
         ssh_cmd.arg(host_spec).arg(command);
         
         // Set up input for password if needed
-        if let Some(password) = &self.config.password {
+        if let Some(_password) = &self.config.password {
             ssh_cmd.stdin(Stdio::piped());
         }
         

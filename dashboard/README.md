@@ -4,11 +4,15 @@ A modern, responsive dashboard for monitoring GPU clusters built with Nuxt.js an
 
 ## Features
 
-- **📊 Real-time Cluster Monitoring**: Live updates via WebSocket
-- **⚡ Magic Moment**: Instant visibility into GPU contention and blocked resources
-- **🎨 Beautiful UI**: Modern design with dark mode support
-- **📱 Responsive**: Works on desktop, tablet, and mobile
-- **🔄 Auto-refresh**: Automatic data updates every 10 seconds
+- **Real-time Cluster Monitoring**: Live updates via WebSocket
+- **Magic Moment**: Instant visibility into GPU contention and blocked resources
+- **Rogue Detection**: Security monitoring with threat detection and risk scoring
+- **Guard Mode Management**: Policy enforcement with user, group, and GPU policies
+- **Auto-refresh**: Automatic data updates with manual refresh controls
+- **Data Persistence**: Policy data saved locally across page refreshes
+- **Interactive Controls**: Toggle switches for enforcement modes
+- **Policy Management**: Complete CRUD operations for User, Group, and GPU policies
+- **Policy Testing**: Built-in policy simulation and testing interface
 
 ## Quick Start
 
@@ -21,6 +25,7 @@ A modern, responsive dashboard for monitoring GPU clusters built with Nuxt.js an
 2. **Start the Dashboard**:
    ```bash
    cd dashboard
+   npm install  # First time only
    npm run dev
    ```
 
@@ -30,19 +35,29 @@ A modern, responsive dashboard for monitoring GPU clusters built with Nuxt.js an
 
 ## Dashboard Views
 
-### Cluster Overview
-- Total nodes, GPUs, memory, and average utilization
-- Real-time metrics with live indicators
-
-### Magic Moment - GPU Contention
-- **Blocked GPUs**: Shows GPUs with high utilization or memory usage
+### Overview Page
+- **Cluster Statistics**: Total nodes, GPUs, memory, and average utilization
+- **Real-time Metrics**: Live indicators with auto-refresh
+- **Magic Moment**: GPU contention analysis with blocked resources
 - **Top Users**: Ranked list of users by GPU memory consumption
-- **Recommendations**: Automated suggestions for resource optimization
+- **Node Details**: Individual node status and health information
 
-### Node Details
-- Individual node status and health
-- Per-GPU utilization bars and memory usage
-- Process counts and last seen timestamps
+### Detection Page
+- **Threat Detection**: Real-time security monitoring
+- **Risk Scoring**: Confidence-based threat assessment
+- **Crypto Miner Detection**: Identifies mining software and patterns
+- **Suspicious Processes**: Flags unusual process behavior
+- **Resource Abuse Monitoring**: Detects excessive memory usage
+- **Interactive Scanning**: Manual scan controls with loading states
+
+### Guard Page
+- **Policy Management**: User, Group, and GPU policy configuration
+- **Enforcement Controls**: Soft/hard enforcement toggle switches
+- **Policy Statistics**: Modern gradient cards showing policy counts
+- **Visual Tables**: Clean display of all policies with action buttons
+- **Modal Forms**: Intuitive policy creation with validation
+- **Policy Testing**: Built-in simulation and testing interface
+- **Data Persistence**: Policy data saved locally across refreshes
 
 ## Configuration
 
@@ -70,42 +85,15 @@ npm run build
 npm run preview
 ```
 
-## Architecture
-
-- **Frontend**: Nuxt.js 3 with Vue 3 Composition API
-- **Styling**: Tailwind CSS with custom components
-- **Icons**: Heroicons for consistent iconography
-- **Real-time**: WebSocket connection for live updates
-- **Charts**: Chart.js for data visualization (ready for future enhancements)
-
 ## API Integration
 
 The dashboard connects to the GPU Kill coordinator API endpoints:
 
 - `GET /api/cluster/snapshot` - Cluster overview data
 - `GET /api/cluster/contention` - Magic Moment analysis
+- `GET /api/cluster/rogue` - Rogue detection results
+- `GET /api/guard/config` - Guard Mode configuration
+- `GET /api/guard/status` - Guard Mode status
+- `POST /api/guard/toggle-dry-run` - Toggle dry-run mode
+- `POST /api/guard/test-policies` - Test policy enforcement
 - `WS /ws` - WebSocket for real-time updates
-
-## Customization
-
-### Adding New Metrics
-1. Update the coordinator API to include new data
-2. Add new metric cards in `pages/index.vue`
-3. Style with Tailwind CSS classes
-
-### Dark Mode
-The dashboard includes automatic dark mode detection and manual toggle. Users can switch between light and dark themes.
-
-### Responsive Design
-The dashboard is fully responsive with breakpoints:
-- Mobile: Single column layout
-- Tablet: 2-column grid
-- Desktop: 3-4 column grid
-
-## Future Enhancements
-
-- **Charts**: Historical utilization graphs
-- **Alerts**: Real-time notifications for issues
-- **User Management**: Role-based access control
-- **Export**: Data export functionality
-- **Mobile App**: PWA support for mobile devices

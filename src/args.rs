@@ -210,6 +210,54 @@ pub struct Cli {
     #[arg(long, requires = "guard")]
     pub guard_toggle_dry_run: bool,
 
+    /// Add group policy
+    #[arg(long, requires = "guard", value_name = "GROUP_NAME")]
+    pub guard_add_group: Option<String>,
+
+    /// Remove group policy
+    #[arg(long, requires = "guard", value_name = "GROUP_NAME")]
+    pub guard_remove_group: Option<String>,
+
+    /// Add GPU policy
+    #[arg(long, requires = "guard", value_name = "GPU_INDEX")]
+    pub guard_add_gpu: Option<u16>,
+
+    /// Remove GPU policy
+    #[arg(long, requires = "guard", value_name = "GPU_INDEX")]
+    pub guard_remove_gpu: Option<u16>,
+
+    /// Group memory limit (GB)
+    #[arg(long, requires = "guard", value_name = "GB")]
+    pub guard_group_memory_limit: Option<f32>,
+
+    /// Group utilization limit (%)
+    #[arg(long, requires = "guard", value_name = "PERCENT")]
+    pub guard_group_utilization_limit: Option<f32>,
+
+    /// Group process limit
+    #[arg(long, requires = "guard", value_name = "COUNT")]
+    pub guard_group_process_limit: Option<u32>,
+
+    /// GPU memory limit (GB)
+    #[arg(long, requires = "guard", value_name = "GB")]
+    pub guard_gpu_memory_limit: Option<f32>,
+
+    /// GPU utilization limit (%)
+    #[arg(long, requires = "guard", value_name = "PERCENT")]
+    pub guard_gpu_utilization_limit: Option<f32>,
+
+    /// GPU reserved memory (GB)
+    #[arg(long, requires = "guard", value_name = "GB")]
+    pub guard_gpu_reserved_memory: Option<f32>,
+
+    /// Group members (comma-separated usernames)
+    #[arg(long, requires = "guard", value_name = "MEMBERS")]
+    pub guard_group_members: Option<String>,
+
+    /// GPU allowed users (comma-separated usernames)
+    #[arg(long, requires = "guard", value_name = "USERS")]
+    pub guard_gpu_allowed_users: Option<String>,
+
     /// Server port for coordinator API
     #[arg(long, requires = "server", default_value = "8080")]
     pub server_port: u16,
@@ -217,6 +265,10 @@ pub struct Cli {
     /// Server host for coordinator API
     #[arg(long, requires = "server", default_value = "0.0.0.0")]
     pub server_host: String,
+
+    /// Register this node with a coordinator
+    #[arg(long, value_name = "COORDINATOR_URL")]
+    pub register_node: Option<String>,
 
     /// Remote host to connect to via SSH
     #[arg(long)]

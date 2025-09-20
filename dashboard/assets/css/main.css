@@ -2,10 +2,89 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import aggressive overscroll fix */
+/* @import './overscroll-fix.css'; */
+
 /* Custom styles for GPU Kill Dashboard */
 @layer base {
+  /* Force dark background on all elements */
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+  
   html {
     font-family: 'Inter', system-ui, sans-serif;
+    background: #000000 !important;
+    background-color: #000000 !important;
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
+    height: 100%;
+    width: 100%;
+  }
+  
+  body {
+    background: #000000 !important;
+    background-color: #000000 !important;
+    overscroll-behavior: none;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    height: 100%;
+    width: 100%;
+    overflow-x: hidden;
+    position: relative;
+  }
+  
+  /* Target the Nuxt root element */
+  #__nuxt {
+    background: #000000 !important;
+    background-color: #000000 !important;
+    min-height: 100vh;
+    height: 100%;
+    width: 100%;
+  }
+  
+  /* Prevent any white backgrounds from showing through */
+  div, main, section, article, header, footer, nav, aside {
+    background-color: transparent !important;
+  }
+  
+  /* Fix overscroll bounce on all platforms */
+  html, body, #__nuxt {
+    overscroll-behavior: none !important;
+    overscroll-behavior-y: none !important;
+    overscroll-behavior-x: none !important;
+  }
+  
+  /* iOS specific fixes */
+  @supports (-webkit-touch-callout: none) {
+    html, body {
+      position: fixed;
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+    }
+    
+    #__nuxt {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+  }
+  
+  /* Additional overscroll fixes */
+  .overscroll-none {
+    overscroll-behavior: none !important;
+  }
+  
+  /* Prevent rubber band effect */
+  .no-bounce {
+    overscroll-behavior-y: none !important;
+    -webkit-overflow-scrolling: touch;
   }
 }
 

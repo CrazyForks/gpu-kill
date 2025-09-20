@@ -122,6 +122,7 @@ cargo build --release --target x86_64-pc-windows-gnu
 | `--ssh-key <PATH>` | SSH private key path (requires --remote) | None |
 | `--ssh-password <PASSWORD>` | SSH password (requires --remote) | Interactive prompt |
 | `--ssh-timeout <SECONDS>` | SSH connection timeout (requires --remote) | `30` |
+| `--register-node <URL>` | Register this node with a coordinator | None |
 | `--help` | Show help information | - |
 | `--version` | Show version information | - |
 
@@ -135,6 +136,7 @@ gpukill --list [OPTIONS]
 - `--details`: Show detailed per-process information
 - `--watch`: Refresh output every 2 seconds until Ctrl-C
 - `--output <FORMAT>`: Output format (`table` or `json`)
+- `--vendor <VENDOR>`: Filter by GPU vendor (`nvidia`, `amd`, `intel`, `apple`, `all`)
 
 **Examples:**
 ```bash
@@ -152,6 +154,11 @@ gpukill --list --output json
 
 # Combined options
 gpukill --list --details --watch --output json
+
+# Filter by vendor
+gpukill --list --vendor nvidia
+gpukill --list --vendor amd --details
+gpukill --list --vendor apple --watch
 ```
 
 ### Kill Operation
@@ -282,7 +289,7 @@ gpukill --server [OPTIONS]
 Starts the GPU Kill coordinator server that provides:
 - RESTful API for cluster management
 - WebSocket server for real-time updates
-- Dashboard web interface
+- Dashboard web interface (accessible at http://localhost:3000)
 - Node registration and heartbeat management
 - Magic Moment contention analysis
 
@@ -298,6 +305,31 @@ gpukill --server --server-port 9000
 gpukill --server --server-host 0.0.0.0
 ```
 
+### Node Registration Operation
+
+```bash
+gpukill --register-node <COORDINATOR_URL>
+```
+
+**Description:**
+Registers this node with a coordinator server for cluster management:
+- Generates unique node ID
+- Sends periodic GPU snapshots to coordinator
+- Maintains heartbeat for health monitoring
+- Enables cluster-wide monitoring and management
+
+**Examples:**
+```bash
+# Register with default coordinator
+gpukill --register-node http://coordinator:8080
+
+# Register with custom coordinator
+gpukill --register-node http://gpu-cluster:9000
+
+# Register with HTTPS coordinator
+gpukill --register-node https://secure-cluster:8443
+```
+
 ## Enhanced Features
 
 ### Multi-Vendor Support
@@ -309,6 +341,7 @@ gpukill --server --server-host 0.0.0.0
   - `nvidia`: Show only NVIDIA GPUs.
   - `amd`: Show only AMD GPUs.
   - `intel`: Show only Intel GPUs.
+  - `apple`: Show only Apple Silicon GPUs.
   - `all`: Show all detected GPUs (default if `--vendor` is not specified).
 
 **Examples:**
@@ -555,9 +588,9 @@ gpukill --audit --rogue-export-config > security-config.json
 gpukill --audit --rogue-import-config security-config.json
 ```
 
-### Dashboard Integration
+### Dashboard
 
-The suspicious usage detection is fully integrated with the web dashboard:
+The suspicious usage detection is fully integrated with the dashboard:
 
 **Rogue Activity Panel:**
 - Real-time risk score visualization
@@ -788,14 +821,13 @@ The GPU Kill dashboard is a modern web interface built with Nuxt.js and Tailwind
 - **Cluster Overview**: Total nodes, GPUs, memory, and utilization
 - **Magic Moment View**: Instant identification of GPU contention
 - **Node Details**: Individual node status and GPU information
-- **Dark Mode**: Toggle between light and dark themes
-- **Responsive Design**: Works on desktop and mobile devices
 
 ### Accessing the Dashboard
 
-1. Start the coordinator: `gpukill --server`
-2. Open your browser to `http://localhost:8080`
-3. View real-time cluster data and GPU contention
+1. Start the coordinator: `gpukill --server --server-port 8080`
+2. Start the dashboard UI: `cd dashboard && npm run dev`
+3. Open your browser to `http://localhost:3000`
+4. View real-time cluster data and GPU contention
 
 ### Dashboard Components
 
@@ -815,6 +847,49 @@ The GPU Kill dashboard is a modern web interface built with Nuxt.js and Tailwind
 - GPU utilization and memory usage
 - Process information
 - Last seen timestamps
+
+#### Rogue Detection
+- Real-time threat scanning
+- Risk score visualization
+- Crypto miner detection
+- Suspicious process identification
+- Resource abuse monitoring
+
+#### Guard Mode Management
+- **Policy Tabs**: Separate interfaces for User, Group, and GPU policies
+- **Member Management**: Add/remove group members and GPU allowed users
+- **Visual Tables**: Clean display of all policies with action buttons
+- **Modal Forms**: Intuitive policy creation with validation
+- **Real-time Updates**: Live policy status and violation monitoring
+- **Policy Statistics**: Modern gradient cards showing policy counts and status
+- **Enforcement Toggles**: Interactive switches for soft/hard enforcement modes
+- **Policy Testing**: Built-in simulation and testing interface
+- **Data Persistence**: Policy data saved locally across page refreshes
+- **Three-Panel Layout**: Fixed sidebar navigation with scrollable content
+
+### Enhanced Dashboard Features
+
+#### Three-Panel Layout
+- **Fixed Left Sidebar**: Navigation menu that stays in place while content scrolls
+- **Scrollable Main Content**: Central area with fixed header and scrollable content
+- **Responsive Design**: Adapts to different screen sizes and orientations
+
+#### Interactive Controls
+- **Enforcement Toggles**: Switch between soft and hard enforcement modes
+- **Policy Testing**: Built-in simulation interface for testing policies
+- **Real-time Refresh**: Manual refresh buttons with loading states
+- **Modal Forms**: Clean policy creation and editing interface
+
+#### Data Persistence
+- **localStorage Integration**: Policy data persists across page refreshes
+- **API Fallback**: Graceful degradation when coordinator is unavailable
+- **Sample Data**: Demo data for testing and development
+
+#### Modern UI Components
+- **Heroicons**: Professional icon set for consistent visual language
+- **Tailwind CSS**: Modern styling with custom color schemes
+- **Gradient Cards**: Eye-catching policy statistics with animations
+- **Loading States**: Visual feedback for all asynchronous operations
 
 ### WebSocket Integration
 
@@ -1091,33 +1166,44 @@ time_overrides = []
 ```
 
 #### Group Policies
-Control resource usage per group:
+Control resource usage per group with member management:
 ```toml
 [group_policies.researchers]
 group_name = "researchers"
-memory_limit_gb = 16.0
-utilization_limit_pct = 80.0
-duration_limit_hours = 24.0
-max_concurrent_processes = 5
+total_memory_limit_gb = 32.0
+total_utilization_limit_pct = 80.0
+max_concurrent_processes = 10
 priority = 3
 allowed_gpus = [0, 1]
 blocked_gpus = []
-time_overrides = []
+members = ["alice", "bob", "charlie"]
 ```
 
+**Key Features:**
+- **Member Management**: Specify which users belong to the group
+- **Total Resource Limits**: Set aggregate limits for all group members
+- **CLI Support**: Add members via `--guard-group-members "user1,user2,user3"`
+- **Dashboard Integration**: Visual member management with tabbed interface
+
 #### GPU Policies
-Control access to specific GPUs:
+Control access to specific GPUs with user restrictions:
 ```toml
-[gpu_policies.gpu_0]
+[gpu_policies."0"]
 gpu_index = 0
-memory_limit_gb = 24.0
-utilization_limit_pct = 90.0
-max_concurrent_processes = 8
-priority = 1
-allowed_users = ["admin", "developer"]
+max_memory_gb = 24.0
+max_utilization_pct = 90.0
+reserved_memory_gb = 2.0
+allowed_users = ["alice", "bob"]
 blocked_users = []
-time_restrictions = []
+maintenance_window = null
 ```
+
+**Key Features:**
+- **User Access Control**: Specify which users can access specific GPUs
+- **Reserved Memory**: Set aside memory that cannot be used by processes
+- **CLI Support**: Add allowed users via `--guard-gpu-allowed-users "user1,user2,user3"`
+- **Dashboard Integration**: Visual user management with tabbed interface
+- **Flexible Access**: Leave `allowed_users` empty to allow all users
 
 #### Time Policies
 Control resource usage during specific time periods:
@@ -1176,6 +1262,8 @@ gpukill --guard --guard-enforce
 ```
 
 #### Policy Management
+
+**User Policies:**
 ```bash
 # Add user policy
 gpukill --guard --guard-add-user "developer" --guard-memory-limit 8.0 --guard-utilization-limit 70.0 --guard-process-limit 3
@@ -1186,6 +1274,40 @@ gpukill --guard --guard-remove-user "developer"
 # Update policy limits
 gpukill --guard --guard-memory-limit 16.0 --guard-utilization-limit 80.0 --guard-process-limit 5
 ```
+
+**Group Policies:**
+```bash
+# Add group policy with members
+gpukill --guard --guard-add-group "developers" --guard-group-members "alice,bob,charlie" --guard-group-memory-limit 32.0 --guard-group-utilization-limit 80.0 --guard-group-process-limit 15
+
+# Add group policy without members (empty group)
+gpukill --guard --guard-add-group "testers" --guard-group-memory-limit 16.0
+
+# Remove group policy
+gpukill --guard --guard-remove-group "developers"
+```
+
+**GPU Policies:**
+```bash
+# Add GPU policy with allowed users
+gpukill --guard --guard-add-gpu 0 --guard-gpu-allowed-users "alice,bob" --guard-gpu-memory-limit 24.0 --guard-gpu-utilization-limit 90.0 --guard-gpu-reserved-memory 2.0
+
+# Add GPU policy allowing all users
+gpukill --guard --guard-add-gpu 1 --guard-gpu-memory-limit 16.0
+
+# Remove GPU policy
+gpukill --guard --guard-remove-gpu 0
+```
+
+**Additional CLI Options:**
+- `--guard-group-members <MEMBERS>`: Comma-separated list of group members
+- `--guard-gpu-allowed-users <USERS>`: Comma-separated list of allowed users for GPU
+- `--guard-group-memory-limit <GB>`: Group memory limit in GB
+- `--guard-group-utilization-limit <PERCENT>`: Group utilization limit percentage
+- `--guard-group-process-limit <COUNT>`: Group process limit count
+- `--guard-gpu-memory-limit <GB>`: GPU memory limit in GB
+- `--guard-gpu-utilization-limit <PERCENT>`: GPU utilization limit percentage
+- `--guard-gpu-reserved-memory <GB>`: GPU reserved memory in GB
 
 #### Policy Testing
 ```bash
@@ -1268,9 +1390,11 @@ The dashboard provides a comprehensive interface for Guard Mode management:
 - **Real-time Updates**: Live status monitoring
 
 #### Policy Management
-- **Visual Policy Editor**: Create and edit policies through the web interface
-- **Policy Statistics**: View policy counts and effectiveness
-- **User Management**: Add/remove user policies
+- **Tabbed Interface**: Separate tabs for User, Group, and GPU policies
+- **Visual Policy Editor**: Create and edit policies through modal forms
+- **Member Management**: Add/remove group members and GPU allowed users
+- **Policy Statistics**: View policy counts and effectiveness with modern cards
+- **Visual Tables**: Clean, organized display of all policies with action buttons
 - **Configuration Export**: Download policy configurations
 
 #### Monitoring and Alerts

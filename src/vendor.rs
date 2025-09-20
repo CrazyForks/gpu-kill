@@ -147,6 +147,7 @@ impl GpuVendorInterface for NvidiaVendor {
         Ok(GpuSnapshot {
             gpu_index: index as u16,
             name,
+            vendor: GpuVendor::Nvidia,
             mem_used_mb: (mem_info.used / 1024 / 1024) as u32,
             mem_total_mb: (mem_info.total / 1024 / 1024) as u32,
             util_pct: util.gpu as f32,
@@ -377,6 +378,7 @@ impl GpuVendorInterface for AmdVendor {
         Ok(GpuSnapshot {
             gpu_index: index as u16,
             name: gpu_info.name,
+            vendor: GpuVendor::Amd,
             mem_used_mb,
             mem_total_mb: gpu_info.mem_total_mb,
             util_pct,
@@ -535,6 +537,7 @@ impl GpuVendorInterface for IntelVendor {
         Ok(GpuSnapshot {
             gpu_index: index as u16,
             name: gpu_info.name,
+            vendor: GpuVendor::Intel,
             mem_used_mb,
             mem_total_mb: gpu_info.mem_total_mb,
             util_pct,
@@ -635,6 +638,7 @@ impl GpuVendorInterface for AppleVendor {
         Ok(GpuSnapshot {
             gpu_index: index as u16,
             name: gpu_info.name,
+            vendor: GpuVendor::Apple,
             mem_used_mb,
             mem_total_mb: gpu_info.mem_total_mb,
             util_pct: 0.0, // Not easily available on Apple Silicon

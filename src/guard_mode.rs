@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use tracing::info;
+use tracing::{info, error};
 
 use crate::nvml_api::GpuProc;
 
@@ -18,7 +18,7 @@ pub struct GuardModeConfig {
     /// Group-specific policies
     pub group_policies: HashMap<String, GroupPolicy>,
     /// GPU-specific policies
-    pub gpu_policies: HashMap<u16, GpuPolicy>,
+    pub gpu_policies: HashMap<String, GpuPolicy>,
     /// Time-based policies
     pub time_policies: Vec<TimePolicy>,
     /// Enforcement settings
@@ -100,10 +100,13 @@ pub struct GpuPolicy {
     /// Reserved memory for system (GB)
     pub reserved_memory_gb: f32,
     /// Allowed users
+    #[serde(default)]
     pub allowed_users: Vec<String>,
     /// Blocked users
+    #[serde(default)]
     pub blocked_users: Vec<String>,
     /// Maintenance window
+    #[serde(default)]
     pub maintenance_window: Option<MaintenanceWindow>,
 }
 
@@ -414,8 +417,17 @@ impl GuardModeManager {
 
     /// Save configuration to file
     fn save_config(path: &PathBuf, config: &GuardModeConfig) -> Result<()> {
-        let content = toml::to_string_pretty(config)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize config: {}", e))?;
+        info!("Serializing config to TOML...");
+        let content = match toml::to_string_pretty(config) {
+            Ok(content) => {
+                info!("Config serialized successfully, writing to file...");
+                content
+            },
+            Err(e) => {
+                error!("TOML serialization failed: {}", e);
+                return Err(anyhow::anyhow!("Failed to serialize config: {}", e));
+            }
+        };
 
         fs::write(path, content)
             .map_err(|e| anyhow::anyhow!("Failed to write config file: {}", e))?;
@@ -479,18 +491,38 @@ impl GuardModeManager {
 
     /// Add a GPU policy
     pub fn add_gpu_policy(&mut self, policy: GpuPolicy) -> Result<()> {
-        self.config.gpu_policies.insert(policy.gpu_index, policy);
+        info!("Adding GPU policy for GPU {}", policy.gpu_index);
+        let key = policy.gpu_index.to_string();
+        self.config.gpu_policies.insert(key, policy);
         self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
+        info!("Saving config to: {}", self.config_path.display());
         Self::save_config(&self.config_path, &self.config)?;
+        info!("GPU policy added successfully");
         Ok(())
     }
 
-    /// Add a time policy
-    pub fn add_time_policy(&mut self, policy: TimePolicy) -> Result<()> {
-        self.config.time_policies.push(policy);
-        self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
-        Self::save_config(&self.config_path, &self.config)?;
-        Ok(())
+
+    /// Remove a group policy
+    pub fn remove_group_policy(&mut self, group_name: &str) -> Result<()> {
+        if self.config.group_policies.remove(group_name).is_some() {
+            self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
+            Self::save_config(&self.config_path, &self.config)?;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Group policy '{}' not found", group_name))
+        }
+    }
+
+    /// Remove a GPU policy
+    pub fn remove_gpu_policy(&mut self, gpu_index: u16) -> Result<()> {
+        let key = gpu_index.to_string();
+        if self.config.gpu_policies.remove(&key).is_some() {
+            self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
+            Self::save_config(&self.config_path, &self.config)?;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("GPU policy for GPU {} not found", gpu_index))
+        }
     }
 
     /// Check processes against policies
@@ -548,7 +580,7 @@ impl GuardModeManager {
     fn check_user_policies(&mut self, username: &str, processes: &[&GpuProc]) -> Result<EnforcementResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
-        let mut actions_taken = Vec::new();
+        let actions_taken = Vec::new();
 
         // Get user policy (or use defaults)
         let user_policy = self.get_user_policy(username);
@@ -865,10 +897,6 @@ impl GuardModeManager {
         Ok(result)
     }
 
-    /// Get dry-run status
-    pub fn is_dry_run(&self) -> bool {
-        self.config.global.dry_run
-    }
 
     /// Toggle dry-run mode
     pub fn toggle_dry_run(&mut self) -> Result<bool> {
