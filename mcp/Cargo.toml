@@ -1,0 +1,36 @@
+[package]
+name = "gpukill-mcp"
+version = "0.1.0"
+edition = "2021"
+authors = ["GPU Kill Team"]
+description = "MCP server for GPU Kill - AI-accessible GPU management"
+license = "MIT"
+repository = "https://github.com/kagehq/gpu-kill"
+
+[dependencies]
+# Core MCP dependencies
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "net", "fs", "macros"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# GPU Kill integration
+gpukill = { path = "../" }
+
+# HTTP server for MCP protocol
+axum = { version = "0.7", features = ["ws", "macros"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# JSON-RPC for MCP protocol
+jsonrpc-core = "18.0"
+jsonrpc-derive = "18.0"
+jsonrpc-ws-server = "18.0"
+
+# UUID for request IDs
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3.0"

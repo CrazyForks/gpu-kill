@@ -18,6 +18,7 @@ Join our Discord community for discussions, support, and updates:
 - **Dashboard**: Web interface for cluster monitoring
 - **Remote**: Manage GPUs across multiple servers
 - **Multi-Vendor**: Works with NVIDIA, AMD, Intel, and Apple Silicon
+- **AI Integration**: MCP server for AI assistant integration
 
 ## Requirements
 
@@ -85,6 +86,59 @@ The dashboard provides:
 - **Security detection** with threat analysis
 - **Policy management** for resource control
 - **Cluster overview** with Magic Moment insights
+
+## MCP Server
+
+GPU Kill includes a MCP server that enables AI assistants to interact with GPU management functionality:
+
+- **Resources**: Read GPU status, processes, audit data, policies, and security scans
+- **Tools**: Kill processes, reset GPUs, scan for threats, create policies
+
+```bash
+# Start the MCP server
+cargo run --release -p gpukill-mcp
+
+# Server runs on http://localhost:3001/mcp
+```
+
+## Usage
+
+Ask your AI to use the tools.
+
+```text
+What GPUs do I have and what's their current usage?
+```
+
+```text
+Kill the Python process that's stuck on GPU 0
+```
+
+```text
+Kill all training processes that are using too much GPU memory
+```
+
+```text
+Show me GPU usage and kill any stuck processes
+```
+
+```text
+Scan for crypto miners and suspicious activity
+```
+
+```text
+Create a policy to limit user memory usage to 8GB
+```
+
+```text
+Reset GPU 1 because it's not responding
+```
+
+```text
+What processes are currently using my GPUs?
+```
+
+See [mcp/README.md](mcp/README.md) for detailed MCP server documentation.
+
 
 ## Security & Policies
 

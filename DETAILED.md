@@ -12,6 +12,7 @@
 - [Cluster Management](#cluster-management)
 - [Remote Operations](#remote-operations)
 - [Dashboard](#dashboard)
+- [MCP Server](#mcp-server)
 - [Output Formats](#output-formats)
 - [Configuration](#configuration)
 - [Safety Features](#safety-features)
@@ -40,6 +41,7 @@ GPU Kill is built with Rust and supports NVIDIA, AMD, Intel, and Apple Silicon G
 - **WebSocket Server**: Real-time updates for dashboard clients
 - **SSH Remote Manager**: Secure remote GPU management via SSH
 - **Dashboard Frontend**: Nuxt.js web interface for cluster monitoring
+- **MCP Server**: Model Context Protocol server for AI assistant integration
 
 ### Dependencies
 
@@ -58,6 +60,8 @@ GPU Kill is built with Rust and supports NVIDIA, AMD, Intel, and Apple Silicon G
 - `tower`: HTTP middleware and services
 - `tower-http`: HTTP middleware (CORS, tracing)
 - `uuid`: Unique identifier generation for nodes
+- `jsonrpc-core`: JSON-RPC protocol implementation for MCP server
+- `jsonrpc-ws-server`: WebSocket JSON-RPC server for MCP
 - `futures-util`: Async utilities for WebSocket handling
 - `tokio`: Async runtime for HTTP server and WebSocket
 
@@ -489,25 +493,25 @@ The suspicious usage detection system provides comprehensive security monitoring
 
 ### Detection Capabilities
 
-**🚨 Crypto Miner Detection:**
+**Crypto Miner Detection:**
 - Identifies known mining software (xmrig, ccminer, ethminer, etc.)
 - Detects mining patterns in process names and behavior
 - Analyzes high GPU utilization and sustained usage
 - Provides confidence-based scoring for mining activity
 
-**⚠️ Suspicious Process Detection:**
+**Suspicious Process Detection:**
 - Flags unusual process names and patterns
 - Detects excessive resource usage
 - Identifies processes from unusual users
 - Analyzes process behavior over time
 
-**📊 Resource Abuse Detection:**
+**Resource Abuse Detection:**
 - Memory hogs consuming excessive GPU memory
 - Long-running processes that may be stuck
 - Excessive GPU utilization patterns
 - Unauthorized access attempts
 
-**🎯 Risk Assessment:**
+**Risk Assessment:**
 - Confidence-based threat scoring (0.0 - 1.0)
 - Risk level classification (Low, Medium, High, Critical)
 - Weighted scoring for different threat types
@@ -599,10 +603,10 @@ The suspicious usage detection is fully integrated with the dashboard:
 - Interactive "Scan for Threats" button
 
 **Threat Visualization:**
-- 🚨 **Crypto Miners**: Red alerts with confidence scores
-- ⚠️ **Suspicious Processes**: Yellow warnings with risk levels
-- 📊 **Resource Abusers**: Orange notifications with severity
-- ✅ **All Clear**: Green confirmation when no threats detected
+- **Crypto Miners**: Red alerts with confidence scores
+- **Suspicious Processes**: Yellow warnings with risk levels
+- **Resource Abusers**: Orange notifications with severity
+- **All Clear**: Green confirmation when no threats detected
 
 **Recommendations:**
 - Actionable security advice
@@ -867,36 +871,245 @@ The GPU Kill dashboard is a modern web interface built with Nuxt.js and Tailwind
 - **Data Persistence**: Policy data saved locally across page refreshes
 - **Three-Panel Layout**: Fixed sidebar navigation with scrollable content
 
-### Enhanced Dashboard Features
 
-#### Three-Panel Layout
-- **Fixed Left Sidebar**: Navigation menu that stays in place while content scrolls
-- **Scrollable Main Content**: Central area with fixed header and scrollable content
-- **Responsive Design**: Adapts to different screen sizes and orientations
+## MCP Server
 
-#### Interactive Controls
-- **Enforcement Toggles**: Switch between soft and hard enforcement modes
-- **Policy Testing**: Built-in simulation interface for testing policies
-- **Real-time Refresh**: Manual refresh buttons with loading states
-- **Modal Forms**: Clean policy creation and editing interface
+GPU Kill includes a MCP server that enables AI assistants and other tools to interact with GPU management functionality through a standardized interface.
 
-#### Data Persistence
-- **localStorage Integration**: Policy data persists across page refreshes
-- **API Fallback**: Graceful degradation when coordinator is unavailable
-- **Sample Data**: Demo data for testing and development
+### Overview
 
-#### Modern UI Components
-- **Heroicons**: Professional icon set for consistent visual language
-- **Tailwind CSS**: Modern styling with custom color schemes
-- **Gradient Cards**: Eye-catching policy statistics with animations
-- **Loading States**: Visual feedback for all asynchronous operations
+The MCP server provides a JSON-RPC interface that allows AI assistants to:
+- Monitor GPU health and performance
+- Kill problematic processes
+- Reset crashed GPUs
+- Scan for security threats
+- Manage resource policies
+- Automate GPU operations
 
-### WebSocket Integration
+### Architecture
 
-The dashboard uses WebSocket connections for real-time updates:
-- Automatic reconnection on connection loss
-- Live data streaming from coordinator
-- Efficient binary protocol for minimal bandwidth usage
+The MCP server is built as a separate crate (`gpukill-mcp`) that integrates with the main GPU Kill functionality:
+
+- **HTTP Server**: Runs on port 3001 (configurable via `MCP_PORT`)
+- **JSON-RPC Protocol**: Standard MCP protocol for AI integration
+- **Resource Handler**: Provides read-only access to GPU data
+- **Tool Handler**: Executes GPU management actions
+- **Cross-platform**: Works on macOS, Linux, and Windows
+
+### Resources
+
+The MCP server exposes the following resources for AI assistants to read:
+
+#### gpu://list
+Current GPU status and utilization data including:
+- GPU ID, name, and vendor
+- Memory usage and total capacity
+- Utilization percentage
+- Temperature and power usage
+- Active processes
+
+#### gpu://processes
+Currently running GPU processes with:
+- Process ID and name
+- Memory usage
+- User information
+- GPU assignment
+
+#### gpu://audit
+Historical GPU usage data including:
+- Usage patterns over time
+- Process execution history
+- Resource utilization trends
+- User activity logs
+
+#### gpu://policies
+Current Guard Mode policies with:
+- User-specific limits
+- Group policies
+- GPU-specific restrictions
+- Time-based overrides
+
+#### gpu://rogue-detection
+Security scan results including:
+- Suspicious processes
+- Crypto miner detection
+- Resource abuse patterns
+- Data exfiltration attempts
+
+### Tools
+
+The MCP server provides the following tools for AI assistants to execute:
+
+#### kill_gpu_process
+Kill a specific GPU process by PID:
+```json
+{
+  "name": "kill_gpu_process",
+  "arguments": {
+    "pid": 12345,
+    "force": false
+  }
+}
+```
+
+#### reset_gpu
+Reset a specific GPU:
+```json
+{
+  "name": "reset_gpu",
+  "arguments": {
+    "gpu_id": 0,
+    "force": false
+  }
+}
+```
+
+#### scan_rogue_activity
+Scan for suspicious GPU activity:
+```json
+{
+  "name": "scan_rogue_activity",
+  "arguments": {
+    "hours": 24
+  }
+}
+```
+
+#### create_user_policy
+Create a user policy for Guard Mode:
+```json
+{
+  "name": "create_user_policy",
+  "arguments": {
+    "username": "developer",
+    "memory_limit_gb": 8.0,
+    "utilization_limit_pct": 70.0,
+    "process_limit": 3
+  }
+}
+```
+
+#### get_gpu_status
+Get detailed status of a specific GPU:
+```json
+{
+  "name": "get_gpu_status",
+  "arguments": {
+    "gpu_id": 0
+  }
+}
+```
+
+#### kill_processes_by_name
+Kill all processes matching a name pattern:
+```json
+{
+  "name": "kill_processes_by_name",
+  "arguments": {
+    "pattern": "python.*train",
+    "force": false
+  }
+}
+```
+
+### API Endpoints
+
+#### HTTP Interface
+- **POST /mcp** - Main MCP JSON-RPC endpoint
+- **GET /health** - Health check endpoint
+
+#### MCP Methods
+- **initialize** - Initialize the MCP connection
+- **resources/list** - List available resources
+- **resources/read** - Read resource contents
+- **tools/list** - List available tools
+- **tools/call** - Execute a tool
+
+### Configuration
+
+The MCP server can be configured using environment variables:
+
+- **MCP_PORT** - Port to listen on (default: 3001)
+- **RUST_LOG** - Logging level (default: info)
+
+### Usage Examples
+
+#### Starting the Server
+```bash
+# Start the MCP server
+cargo run --release -p gpukill-mcp
+
+# Or with custom port
+MCP_PORT=3001 cargo run --release -p gpukill-mcp
+```
+
+#### Testing the Server
+```bash
+# Health check
+curl -X GET http://localhost:3001/health
+
+# List available tools
+curl -X POST http://localhost:3001/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"tools/list","params":{}}'
+
+# Get GPU list
+curl -X POST http://localhost:3001/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"2","method":"resources/read","params":{"uri":"gpu://list"}}'
+```
+
+### Development
+
+```bash
+# Run in development mode
+cargo run -p gpukill-mcp
+
+# Run with debug logging
+RUST_LOG=debug cargo run -p gpukill-mcp
+
+# Build release version
+cargo build --release -p gpukill-mcp
+```
+
+### Natural Language Examples
+
+Ask your AI assistant to use the MCP tools with natural language:
+
+```text
+What GPUs do I have and what's their current usage?
+```
+
+```text
+Kill the Python process that's stuck on GPU 0
+```
+
+```text
+Kill all training processes that are using too much GPU memory
+```
+
+```text
+Show me GPU usage and kill any stuck processes
+```
+
+```text
+Scan for crypto miners and suspicious activity
+```
+
+```text
+Create a policy to limit user memory usage to 8GB
+```
+
+```text
+Reset GPU 1 because it's not responding
+```
+
+```text
+What processes are currently using my GPUs?
+```
+
+For detailed MCP server documentation, see [mcp/README.md](mcp/README.md).
+
 
 ## Output Formats
 
@@ -1183,7 +1396,6 @@ members = ["alice", "bob", "charlie"]
 - **Member Management**: Specify which users belong to the group
 - **Total Resource Limits**: Set aggregate limits for all group members
 - **CLI Support**: Add members via `--guard-group-members "user1,user2,user3"`
-- **Dashboard Integration**: Visual member management with tabbed interface
 
 #### GPU Policies
 Control access to specific GPUs with user restrictions:
@@ -1202,7 +1414,6 @@ maintenance_window = null
 - **User Access Control**: Specify which users can access specific GPUs
 - **Reserved Memory**: Set aside memory that cannot be used by processes
 - **CLI Support**: Add allowed users via `--guard-gpu-allowed-users "user1,user2,user3"`
-- **Dashboard Integration**: Visual user management with tabbed interface
 - **Flexible Access**: Leave `allowed_users` empty to allow all users
 
 #### Time Policies
