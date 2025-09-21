@@ -258,6 +258,31 @@ jobs:
           npm install
           npm run build
 
+  # Native Linux compilation
+  linux-compile:
+    name: Linux Compile
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev pkg-config
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Verify binary
+        run: |
+          ls -la target/release/gpukill
+          file target/release/gpukill
+
   # Cross-compilation tests using cargo-cross (proper solution)
   cross-compile:
     name: Cross-Compile (${{ matrix.target }})
@@ -307,10 +332,28 @@ jobs:
           echo "OPENSSL_DIR: $OPENSSL_DIR"
 
       - name: Cross-compile
+        env:
+          # Set OpenSSL environment variables for cross-compilation
+          OPENSSL_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu' || '/usr' }}
+          OPENSSL_INCLUDE_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/include' || '/usr/include/openssl' }}
+          OPENSSL_LIB_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/lib' || '/usr/lib/x86_64-linux-gnu' }}
+          PKG_CONFIG_PATH: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/lib/pkgconfig' || '/usr/lib/x86_64-linux-gnu/pkgconfig' }}
+          PKG_CONFIG_ALLOW_CROSS: 1
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && 'aarch64-linux-gnu-gcc' || '' }}
         run: |
-          # Use cross with default configuration
+          # Use cross with proper environment setup
           echo "=== Cross-compiling to ${{ matrix.target }} ==="
-          cross build --release --target ${{ matrix.target }}
+          echo "OPENSSL_DIR: $OPENSSL_DIR"
+          echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+          
+          # For x86_64-unknown-linux-gnu, use regular cargo since it's the same as host
+          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
+            echo "Using regular cargo for native target"
+            cargo build --release --target ${{ matrix.target }}
+          else
+            echo "Using cross for cross-compilation"
+            cross build --release --target ${{ matrix.target }}
+          fi
           
           # Verify the binary was created
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then
