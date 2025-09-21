@@ -119,7 +119,7 @@ impl ProcessManager {
 
     /// Gracefully terminate a process with timeout and escalation (Windows stub)
     #[cfg(windows)]
-    pub fn graceful_kill(&self, pid: u32, timeout_secs: u16, force: bool) -> Result<()> {
+    pub fn graceful_kill(&self, _pid: u32, _timeout_secs: u16, _force: bool) -> Result<()> {
         // On Windows, we can't use Unix signals, so we'll use a different approach
         // For now, just return an error indicating this feature isn't available on Windows
         Err(anyhow::anyhow!(
@@ -241,7 +241,7 @@ fn get_process_user(pid: u32) -> Result<String> {
         use std::process::Command;
         // On Windows, use wmic command
         let output = Command::new("wmic")
-            .args(&[
+            .args([
                 "process",
                 "where",
                 &format!("ProcessId={}", pid),
