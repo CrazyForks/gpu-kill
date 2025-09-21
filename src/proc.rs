@@ -122,7 +122,9 @@ impl ProcessManager {
     pub fn graceful_kill(&self, pid: u32, timeout_secs: u16, force: bool) -> Result<()> {
         // On Windows, we can't use Unix signals, so we'll use a different approach
         // For now, just return an error indicating this feature isn't available on Windows
-        Err(anyhow::anyhow!("Process termination not yet implemented for Windows"))
+        Err(anyhow::anyhow!(
+            "Process termination not yet implemented for Windows"
+        ))
     }
 
     /// Check if a process is still running
