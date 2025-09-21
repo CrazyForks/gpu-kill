@@ -101,7 +101,7 @@ jobs:
         run: cargo test --test integration_tests --jobs 2
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings --jobs 2
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Run fmt
         run: cargo fmt --all -- --check
@@ -279,7 +279,7 @@ jobs:
 
       - name: Install cross-compilation tools
         run: |
-          # Install cargo-cross for proper cross-compilation
+          # Install cargo-cross for proper cross-compilation (handles OpenSSL automatically)
           cargo install cross --git https://github.com/cross-rs/cross
           
           # Install target-specific tools
@@ -293,23 +293,16 @@ jobs:
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then
             sudo apt-get install -y gcc-mingw-w64-x86-64
           elif [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu libssl-dev:arm64
-            # Enable ARM64 architecture
-            sudo dpkg --add-architecture arm64
-            sudo apt-get update
+            # Install ARM64 cross-compilation tools
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+            # Note: cargo-cross handles OpenSSL dependencies automatically
           fi
 
       - name: Cross-compile
         env:
-          # Set up OpenSSL environment variables for cross-compilation
-          OPENSSL_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu' || '/usr' }}
-          OPENSSL_INCLUDE_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/include' || '/usr/include/openssl' }}
-          OPENSSL_LIB_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/lib' || '/usr/lib/x86_64-linux-gnu' }}
-          PKG_CONFIG_PATH: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/lib/pkgconfig' || '/usr/lib/x86_64-linux-gnu/pkgconfig' }}
+          # cargo-cross handles OpenSSL dependencies automatically
           # Allow cross-compilation
           PKG_CONFIG_ALLOW_CROSS: 1
-          # Set linker for ARM64
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && 'aarch64-linux-gnu-gcc' || '' }}
         run: |
           # Use cross for reliable cross-compilation
           cross build --release --target ${{ matrix.target }}
