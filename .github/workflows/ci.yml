@@ -81,7 +81,7 @@ jobs:
   gpu-hardware-tests:
     name: GPU Hardware Tests (${{ matrix.vendor }})
     runs-on: [self-hosted, gpu, ${{ matrix.vendor }}]
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    if: false  # Disabled until self-hosted runners are set up
     
     strategy:
       fail-fast: false
@@ -245,7 +245,7 @@ jobs:
   stress-tests:
     name: Stress Tests
     runs-on: [self-hosted, gpu, stress-test]
-    if: github.ref == 'refs/heads/main'
+    if: false  # Disabled until self-hosted runners are set up
     
     steps:
       - name: Checkout code
@@ -283,7 +283,7 @@ jobs:
   profile:
     name: Performance Profile
     runs-on: [self-hosted, gpu, nvidia]
-    if: github.event_name == 'workflow_dispatch'
+    if: false  # Disabled until self-hosted runners are set up
     
     steps:
       - name: Checkout code
