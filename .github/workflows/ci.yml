@@ -297,18 +297,19 @@ jobs:
             sudo apt-get install -y gcc-aarch64-linux-gnu
             # Note: cargo-cross handles OpenSSL dependencies automatically
           fi
+          
+          # Debug: Check OpenSSL installation
+          echo "=== OpenSSL Debug Info ==="
+          pkg-config --list-all | grep openssl || echo "No openssl in pkg-config"
+          find /usr -name "openssl.pc" 2>/dev/null || echo "openssl.pc not found"
+          ls -la /usr/lib/x86_64-linux-gnu/pkgconfig/ | grep openssl || echo "No openssl in pkgconfig dir"
+          echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+          echo "OPENSSL_DIR: $OPENSSL_DIR"
 
       - name: Cross-compile
-        env:
-          # Set up OpenSSL environment variables for cross-compilation
-          OPENSSL_DIR: /usr
-          OPENSSL_INCLUDE_DIR: /usr/include/openssl
-          OPENSSL_LIB_DIR: /usr/lib/x86_64-linux-gnu
-          PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig
-          # Allow cross-compilation
-          PKG_CONFIG_ALLOW_CROSS: 1
         run: |
-          # Use cross for reliable cross-compilation
+          # Use cross with Cross.toml configuration
+          echo "=== Cross-compiling to ${{ matrix.target }} ==="
           cross build --release --target ${{ matrix.target }}
           
           # Verify the binary was created

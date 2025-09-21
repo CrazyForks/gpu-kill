@@ -1,0 +1,31 @@
+# Cross compilation configuration for GPU Kill
+# This file configures cargo-cross to handle cross-compilation properly
+
+[target.x86_64-unknown-linux-gnu]
+# For x86_64 Linux, we're already on the target platform
+# No special configuration needed
+
+[target.aarch64-unknown-linux-gnu]
+# ARM64 Linux cross-compilation
+image = "ghcr.io/cross-rs/cross:aarch64-unknown-linux-gnu-0.2.5"
+
+[target.x86_64-pc-windows-gnu]
+# Windows cross-compilation
+image = "ghcr.io/cross-rs/cross:x86_64-pc-windows-gnu-0.2.5"
+
+# Global settings
+[build.env]
+# Allow cross-compilation
+PKG_CONFIG_ALLOW_CROSS = "1"
+
+# OpenSSL configuration for cross-compilation
+[target.aarch64-unknown-linux-gnu.env]
+# ARM64 specific OpenSSL settings
+OPENSSL_DIR = "/usr/aarch64-linux-gnu"
+OPENSSL_INCLUDE_DIR = "/usr/aarch64-linux-gnu/include"
+OPENSSL_LIB_DIR = "/usr/aarch64-linux-gnu/lib"
+PKG_CONFIG_PATH = "/usr/aarch64-linux-gnu/lib/pkgconfig"
+
+[target.x86_64-pc-windows-gnu.env]
+# Windows specific settings
+PKG_CONFIG_ALLOW_CROSS = "1"
