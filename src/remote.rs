@@ -62,65 +62,69 @@ impl SshRemote {
     /// Execute a command on the remote host
     pub fn execute_command(&self, command: &str) -> Result<String> {
         debug!("Executing remote command: {}", command);
-        
+
         let mut ssh_cmd = Command::new("ssh");
-        
+
         // Add SSH options
-        ssh_cmd.arg("-o")
-               .arg("ConnectTimeout=30")
-               .arg("-o")
-               .arg("StrictHostKeyChecking=no")
-               .arg("-o")
-               .arg("UserKnownHostsFile=/dev/null")
-               .arg("-o")
-               .arg("LogLevel=ERROR");
-        
+        ssh_cmd
+            .arg("-o")
+            .arg("ConnectTimeout=30")
+            .arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null")
+            .arg("-o")
+            .arg("LogLevel=ERROR");
+
         // Add port if not default
         if self.config.port != 22 {
             ssh_cmd.arg("-p").arg(self.config.port.to_string());
         }
-        
+
         // Add key file if specified
         if let Some(key_path) = &self.config.key_path {
             ssh_cmd.arg("-i").arg(key_path);
         }
-        
+
         // Add password authentication if specified
         if self.config.password.is_some() {
             ssh_cmd.arg("-o").arg("PasswordAuthentication=yes");
         }
-        
+
         // Add host and command
         let host_spec = format!("{}@{}", self.config.username, self.config.host);
         ssh_cmd.arg(host_spec).arg(command);
-        
+
         // Set up input for password if needed
         if let Some(_password) = &self.config.password {
             ssh_cmd.stdin(Stdio::piped());
         }
-        
+
         debug!("Running SSH command: {:?}", ssh_cmd);
-        
+
         let mut child = ssh_cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .context("Failed to spawn SSH command")?;
-        
+
         // Send password if provided
         if let Some(password) = &self.config.password {
             if let Some(stdin) = child.stdin.as_mut() {
                 use std::io::Write;
-                stdin.write_all(password.as_bytes())
+                stdin
+                    .write_all(password.as_bytes())
                     .context("Failed to write password to SSH stdin")?;
-                stdin.write_all(b"\n")
+                stdin
+                    .write_all(b"\n")
                     .context("Failed to write newline to SSH stdin")?;
             }
         }
-        
-        let output = child.wait_with_output()
+
+        let output = child
+            .wait_with_output()
             .context("Failed to wait for SSH command")?;
-        
+
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(anyhow::anyhow!(
@@ -129,11 +133,14 @@ impl SshRemote {
                 stderr
             ));
         }
-        
+
         let stdout = String::from_utf8(output.stdout)
             .context("Failed to decode SSH command output as UTF-8")?;
-        
-        debug!("Command executed successfully, output length: {} bytes", stdout.len());
+
+        debug!(
+            "Command executed successfully, output length: {} bytes",
+            stdout.len()
+        );
         Ok(stdout)
     }
 
@@ -167,7 +174,7 @@ impl SshRemote {
         let hostname = self.execute_command("hostname")?.trim().to_string();
         let os_info = self.execute_command("uname -a")?.trim().to_string();
         let gpu_info = self.execute_command("nvidia-smi --query-gpu=name --format=csv,noheader,nounits 2>/dev/null || echo 'No NVIDIA GPUs'")?.trim().to_string();
-        
+
         Ok(RemoteHostInfo {
             hostname,
             os_info,
@@ -186,29 +193,29 @@ pub struct RemoteHostInfo {
 }
 
 /// Execute a local gpukill command with remote forwarding
-pub fn execute_remote_operation(
-    config: SshConfig,
-    local_args: &[String],
-) -> Result<()> {
+pub fn execute_remote_operation(config: SshConfig, local_args: &[String]) -> Result<()> {
     let remote = SshRemote::new(config);
-    
+
     // Check if gpukill is available on remote host
     if !remote.check_gpukill_availability()? {
         return Err(anyhow::anyhow!(
             "gpukill is not available on the remote host. Please install gpukill on the remote host first."
         ));
     }
-    
+
     // Get remote host info
     let host_info = remote.get_host_info()?;
-    info!("Remote host: {} ({})", host_info.hostname, host_info.os_info);
-    
+    info!(
+        "Remote host: {} ({})",
+        host_info.hostname, host_info.os_info
+    );
+
     // Execute the command on remote host
     let output = remote.execute_gpukill(local_args)?;
-    
+
     // Print the output
     print!("{}", output);
-    
+
     Ok(())
 }
 
@@ -232,7 +239,7 @@ mod tests {
             .with_key_path("/path/to/key".to_string())
             .with_password("password".to_string())
             .with_timeout(Duration::from_secs(60));
-        
+
         assert_eq!(config.key_path, Some("/path/to/key".to_string()));
         assert_eq!(config.password, Some("password".to_string()));
         assert_eq!(config.timeout, Duration::from_secs(60));

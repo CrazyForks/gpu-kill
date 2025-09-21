@@ -1,10 +1,10 @@
 //! MCP Resources for GPU Kill
 
 use crate::types::*;
-use gpukill::vendor::GpuManager;
+use gpukill::audit::AuditManager;
 use gpukill::guard_mode::GuardModeManager;
 use gpukill::rogue_detection::RogueDetector;
-use gpukill::audit::AuditManager;
+use gpukill::vendor::GpuManager;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -19,7 +19,7 @@ pub struct ResourceHandler {
 impl ResourceHandler {
     pub async fn new() -> anyhow::Result<Self> {
         let gpu_manager = GpuManager::initialize()?;
-        
+
         // Initialize optional components
         let guard_mode = GuardModeManager::new().ok();
         let audit_manager = AuditManager::new().await.ok();
@@ -87,25 +87,32 @@ impl ResourceHandler {
 
     async fn get_gpu_list(&self) -> anyhow::Result<ResourceContents> {
         let gpus = self.gpu_manager.get_all_snapshots()?;
-        let gpu_info: Vec<GpuInfo> = gpus.into_iter().map(|gpu| GpuInfo {
-            id: gpu.gpu_index as u32,
-            name: gpu.name,
-            vendor: gpu.vendor.to_string(),
-            memory_used: gpu.mem_used_mb as f64,
-            memory_total: gpu.mem_total_mb as f64,
-            utilization: gpu.util_pct as f64,
-            temperature: Some(gpu.temp_c as f64),
-            power_usage: Some(gpu.power_w as f64),
-            processes: gpu.top_proc.map(|proc| GpuProcess {
-                pid: proc.pid,
-                name: proc.proc_name,
-                memory_usage: proc.used_mem_mb as f64,
-                user: Some(proc.user),
-            }).into_iter().collect(),
-        }).collect();
+        let gpu_info: Vec<GpuInfo> = gpus
+            .into_iter()
+            .map(|gpu| GpuInfo {
+                id: gpu.gpu_index as u32,
+                name: gpu.name,
+                vendor: gpu.vendor.to_string(),
+                memory_used: gpu.mem_used_mb as f64,
+                memory_total: gpu.mem_total_mb as f64,
+                utilization: gpu.util_pct as f64,
+                temperature: Some(gpu.temp_c as f64),
+                power_usage: Some(gpu.power_w as f64),
+                processes: gpu
+                    .top_proc
+                    .map(|proc| GpuProcess {
+                        pid: proc.pid,
+                        name: proc.proc_name,
+                        memory_usage: proc.used_mem_mb as f64,
+                        user: Some(proc.user),
+                    })
+                    .into_iter()
+                    .collect(),
+            })
+            .collect();
 
         let json_text = serde_json::to_string_pretty(&gpu_info)?;
-        
+
         Ok(ResourceContents {
             uri: "gpu://list".to_string(),
             mime_type: Some("application/json".to_string()),
@@ -130,7 +137,7 @@ impl ResourceHandler {
         }
 
         let json_text = serde_json::to_string_pretty(&all_processes)?;
-        
+
         Ok(ResourceContents {
             uri: "gpu://processes".to_string(),
             mime_type: Some("application/json".to_string()),
@@ -153,22 +160,32 @@ impl ResourceHandler {
     async fn get_policies(&self) -> anyhow::Result<ResourceContents> {
         if let Some(guard_mode) = &self.guard_mode {
             let config = guard_mode.get_config();
-            let policies: Vec<PolicyInfo> = config.user_policies.iter().map(|(name, policy)| {
-                let mut limits = HashMap::new();
-                limits.insert("memory_limit_gb".to_string(), json!(policy.memory_limit_gb));
-                limits.insert("utilization_limit_pct".to_string(), json!(policy.utilization_limit_pct));
-                limits.insert("process_limit".to_string(), json!(policy.max_concurrent_processes));
+            let policies: Vec<PolicyInfo> = config
+                .user_policies
+                .iter()
+                .map(|(name, policy)| {
+                    let mut limits = HashMap::new();
+                    limits.insert("memory_limit_gb".to_string(), json!(policy.memory_limit_gb));
+                    limits.insert(
+                        "utilization_limit_pct".to_string(),
+                        json!(policy.utilization_limit_pct),
+                    );
+                    limits.insert(
+                        "process_limit".to_string(),
+                        json!(policy.max_concurrent_processes),
+                    );
 
-                PolicyInfo {
-                    policy_type: "user".to_string(),
-                    name: name.clone(),
-                    enabled: true,
-                    limits,
-                }
-            }).collect();
+                    PolicyInfo {
+                        policy_type: "user".to_string(),
+                        name: name.clone(),
+                        enabled: true,
+                        limits,
+                    }
+                })
+                .collect();
 
             let json_text = serde_json::to_string_pretty(&policies)?;
-            
+
             Ok(ResourceContents {
                 uri: "gpu://policies".to_string(),
                 mime_type: Some("application/json".to_string()),
@@ -188,10 +205,10 @@ impl ResourceHandler {
     async fn get_rogue_detection(&self) -> anyhow::Result<ResourceContents> {
         if let Some(rogue_detector) = &self.rogue_detector {
             let result = rogue_detector.detect_rogue_activity(24).await?;
-            
+
             // Combine all threat types into a single list
             let mut all_threats = Vec::new();
-            
+
             // Add suspicious processes
             for threat in result.suspicious_processes {
                 all_threats.push(ThreatInfo {
@@ -208,7 +225,7 @@ impl ResourceHandler {
                     }),
                 });
             }
-            
+
             // Add crypto miners
             for threat in result.crypto_miners {
                 all_threats.push(ThreatInfo {
@@ -225,7 +242,7 @@ impl ResourceHandler {
                     }),
                 });
             }
-            
+
             // Add resource abusers
             for threat in result.resource_abusers {
                 all_threats.push(ThreatInfo {
@@ -242,7 +259,7 @@ impl ResourceHandler {
                     }),
                 });
             }
-            
+
             // Add data exfiltrators
             for threat in result.data_exfiltrators {
                 all_threats.push(ThreatInfo {
@@ -259,11 +276,11 @@ impl ResourceHandler {
                     }),
                 });
             }
-            
+
             let threat_info = all_threats;
 
             let json_text = serde_json::to_string_pretty(&threat_info)?;
-            
+
             Ok(ResourceContents {
                 uri: "gpu://rogue-detection".to_string(),
                 mime_type: Some("application/json".to_string()),

@@ -1,9 +1,9 @@
-use gpukill::args::{Cli, OutputFormat, VendorFilter};
 use clap::Parser;
+use gpukill::args::{Cli, OutputFormat, VendorFilter};
 use gpukill::nvml_api::{GpuInfo, GpuProc, GpuSnapshot, Snapshot};
 use gpukill::process_mgmt::EnhancedProcessManager;
 use gpukill::render::Renderer;
-use gpukill::vendor::{GpuVendor, NvidiaVendor, AmdVendor, GpuVendorInterface};
+use gpukill::vendor::{AmdVendor, GpuVendor, GpuVendorInterface, NvidiaVendor};
 use std::process::Command;
 
 #[cfg(feature = "mock_nvml")]
@@ -46,7 +46,15 @@ mod mock_tests {
 
     #[test]
     fn test_kill_with_custom_timeout_and_force() {
-        let cli = Cli::parse_from(["gpukill", "--kill", "--pid", "12345", "--timeout-secs", "10", "--force"]);
+        let cli = Cli::parse_from([
+            "gpukill",
+            "--kill",
+            "--pid",
+            "12345",
+            "--timeout-secs",
+            "10",
+            "--force",
+        ]);
         assert!(cli.kill);
         assert_eq!(cli.pid, Some(12345));
         assert_eq!(cli.timeout_secs, 10);
@@ -154,7 +162,9 @@ mod mock_tests {
 
     #[test]
     fn test_kill_with_filter_batch_and_force() {
-        let cli = Cli::parse_from(["gpukill", "--kill", "--filter", "python.*", "--batch", "--force"]);
+        let cli = Cli::parse_from([
+            "gpukill", "--kill", "--filter", "python.*", "--batch", "--force",
+        ]);
         assert!(cli.kill);
         assert_eq!(cli.filter, Some("python.*".to_string()));
         assert!(cli.batch);
@@ -188,7 +198,16 @@ mod mock_tests {
 
     #[test]
     fn test_list_with_all_new_options() {
-        let cli = Cli::parse_from(["gpukill", "--list", "--details", "--containers", "--vendor", "all", "--output", "json"]);
+        let cli = Cli::parse_from([
+            "gpukill",
+            "--list",
+            "--details",
+            "--containers",
+            "--vendor",
+            "all",
+            "--output",
+            "json",
+        ]);
         assert!(cli.list);
         assert!(cli.details);
         assert!(cli.containers);
@@ -277,7 +296,7 @@ mod mock_nvml_tests {
     fn test_table_rendering() {
         let snapshot = create_mock_snapshot();
         let renderer = Renderer::new(OutputFormat::Table);
-        
+
         // This should not panic
         let result = renderer.render_snapshot(&snapshot, false);
         assert!(result.is_ok());
@@ -287,7 +306,7 @@ mod mock_nvml_tests {
     fn test_detailed_table_rendering() {
         let snapshot = create_mock_snapshot();
         let renderer = Renderer::new(OutputFormat::Table);
-        
+
         // This should not panic
         let result = renderer.render_snapshot(&snapshot, true);
         assert!(result.is_ok());
@@ -297,7 +316,7 @@ mod mock_nvml_tests {
     fn test_json_rendering() {
         let snapshot = create_mock_snapshot();
         let renderer = Renderer::new(OutputFormat::Json);
-        
+
         // This should not panic
         let result = renderer.render_snapshot(&snapshot, false);
         assert!(result.is_ok());
@@ -307,7 +326,7 @@ mod mock_nvml_tests {
     fn test_json_snapshot_rendering() {
         let snapshot = create_mock_snapshot();
         let renderer = Renderer::new(OutputFormat::Json);
-        
+
         // This should not panic
         let result = renderer.render_json_snapshot(&snapshot);
         assert!(result.is_ok());
@@ -316,11 +335,11 @@ mod mock_nvml_tests {
     #[test]
     fn test_snapshot_serialization() {
         let snapshot = create_mock_snapshot();
-        
+
         // Test JSON serialization
         let json = serde_json::to_string(&snapshot).unwrap();
         let deserialized: Snapshot = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(snapshot.host, deserialized.host);
         assert_eq!(snapshot.gpus.len(), deserialized.gpus.len());
         assert_eq!(snapshot.procs.len(), deserialized.procs.len());
@@ -336,7 +355,7 @@ mod mock_nvml_tests {
 
         let json = serde_json::to_string(&gpu_info).unwrap();
         let deserialized: GpuInfo = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(gpu_info.index, deserialized.index);
         assert_eq!(gpu_info.name, deserialized.name);
         assert_eq!(gpu_info.mem_total_mb, deserialized.mem_total_mb);
@@ -356,7 +375,7 @@ mod mock_nvml_tests {
 
         let json = serde_json::to_string(&gpu_proc).unwrap();
         let deserialized: GpuProc = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(gpu_proc.gpu_index, deserialized.gpu_index);
         assert_eq!(gpu_proc.pid, deserialized.pid);
         assert_eq!(gpu_proc.user, deserialized.user);
@@ -371,7 +390,7 @@ mod mock_nvml_tests {
     fn test_enhanced_process_manager_creation() {
         // This test would require a mock NVML API, but we can test the structure
         use gpukill::nvml_api::NvmlApi;
-        
+
         // We'll skip this test if NVML is not available
         if let Ok(nvml_api) = NvmlApi::new() {
             use gpukill::proc::ProcessManager;
@@ -416,12 +435,14 @@ mod mock_nvml_tests {
         // Create a mock enhanced manager for testing
         use gpukill::nvml_api::NvmlApi;
         use gpukill::proc::ProcessManager;
-        
+
         if let Ok(nvml_api) = NvmlApi::new() {
             let proc_manager = ProcessManager::new(nvml_api);
             let mut enhanced_manager = EnhancedProcessManager::new(proc_manager);
 
-            let filtered = enhanced_manager.filter_processes_by_name(&processes, "python").unwrap();
+            let filtered = enhanced_manager
+                .filter_processes_by_name(&processes, "python")
+                .unwrap();
             assert_eq!(filtered.len(), 2);
             assert_eq!(filtered[0].proc_name, "python");
             assert_eq!(filtered[1].proc_name, "python3");
@@ -462,7 +483,7 @@ mod mock_nvml_tests {
 
         use gpukill::nvml_api::NvmlApi;
         use gpukill::proc::ProcessManager;
-        
+
         if let Ok(nvml_api) = NvmlApi::new() {
             let proc_manager = ProcessManager::new(nvml_api);
             let mut enhanced_manager = EnhancedProcessManager::new(proc_manager);
@@ -507,7 +528,7 @@ mod mock_nvml_tests {
 
         use gpukill::nvml_api::NvmlApi;
         use gpukill::proc::ProcessManager;
-        
+
         if let Ok(nvml_api) = NvmlApi::new() {
             let proc_manager = ProcessManager::new(nvml_api);
             let mut enhanced_manager = EnhancedProcessManager::new(proc_manager);
@@ -612,7 +633,9 @@ mod integration_tests {
     #[test]
     fn test_kill_with_both_pid_and_filter_fails() {
         let output = Command::new("cargo")
-            .args(["run", "--", "--kill", "--pid", "12345", "--filter", "python"])
+            .args([
+                "run", "--", "--kill", "--pid", "12345", "--filter", "python",
+            ])
             .output()
             .expect("Failed to execute command");
 
@@ -660,7 +683,10 @@ mod integration_tests {
     // Tests for vendor functionality
     #[test]
     fn test_vendor_filter_conversion() {
-        assert_eq!(VendorFilter::Nvidia.to_gpu_vendor(), Some(GpuVendor::Nvidia));
+        assert_eq!(
+            VendorFilter::Nvidia.to_gpu_vendor(),
+            Some(GpuVendor::Nvidia)
+        );
         assert_eq!(VendorFilter::Amd.to_gpu_vendor(), Some(GpuVendor::Amd));
         assert_eq!(VendorFilter::Intel.to_gpu_vendor(), Some(GpuVendor::Intel));
         assert_eq!(VendorFilter::All.to_gpu_vendor(), None);

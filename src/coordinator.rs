@@ -9,11 +9,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
@@ -120,12 +116,12 @@ impl CoordinatorState {
             let mut interval = tokio::time::interval(Duration::from_secs(30));
             loop {
                 interval.tick().await;
-                
+
                 // Clean up stale nodes
                 if let Err(e) = state.cleanup_stale_nodes().await {
                     tracing::warn!("Failed to cleanup stale nodes: {}", e);
                 }
-                
+
                 // Update cluster snapshot
                 if let Err(e) = state.update_cluster_snapshot().await {
                     tracing::warn!("Failed to update cluster snapshot: {}", e);
@@ -179,7 +175,7 @@ impl CoordinatorState {
     pub async fn build_cluster_snapshot(&self) -> Result<ClusterSnapshot> {
         let nodes = self.nodes.read().await;
         let snapshots = self.snapshots.read().await;
-        
+
         let mut node_snapshots = Vec::new();
         let mut total_gpus = 0;
         let mut total_memory_gb = 0.0;
@@ -197,9 +193,9 @@ impl CoordinatorState {
                     processes: snapshot.processes.clone(),
                     status: node_info.status.clone(),
                 };
-                
+
                 node_snapshots.push(node_snapshot);
-                
+
                 total_gpus += snapshot.gpus.len() as u32;
                 for gpu in &snapshot.gpus {
                     total_memory_gb += gpu.mem_total_mb as f32 / 1024.0;
@@ -210,7 +206,11 @@ impl CoordinatorState {
             }
         }
 
-        let utilization_avg = if gpu_count > 0 { total_utilization / gpu_count as f32 } else { 0.0 };
+        let utilization_avg = if gpu_count > 0 {
+            total_utilization / gpu_count as f32
+        } else {
+            0.0
+        };
 
         Ok(ClusterSnapshot {
             timestamp: Utc::now(),
@@ -247,8 +247,8 @@ impl CoordinatorState {
                     .collect();
 
                 // Check if GPU is blocked (high utilization or memory usage)
-                let is_blocked = gpu.util_pct > 80.0 || 
-                    (gpu.mem_used_mb as f32 / gpu.mem_total_mb as f32) > 0.8;
+                let is_blocked =
+                    gpu.util_pct > 80.0 || (gpu.mem_used_mb as f32 / gpu.mem_total_mb as f32) > 0.8;
 
                 if is_blocked && !gpu_processes.is_empty() {
                     blocked_gpus.push(BlockedGpu {
@@ -264,7 +264,9 @@ impl CoordinatorState {
 
                 // Aggregate user statistics
                 for process in &gpu_processes {
-                    let entry = user_stats.entry(process.user.clone()).or_insert((0, 0, 0.0, 0));
+                    let entry = user_stats
+                        .entry(process.user.clone())
+                        .or_insert((0, 0, 0.0, 0));
                     entry.0 += 1; // gpu_count
                     entry.1 += process.used_mem_mb; // memory
                     entry.2 += gpu.util_pct; // utilization (will average later)
@@ -276,15 +278,15 @@ impl CoordinatorState {
         // Convert user stats to UserUsage
         let mut top_users: Vec<UserUsage> = user_stats
             .into_iter()
-            .map(|(user, (gpu_count, total_memory_mb, total_util, process_count))| {
-                UserUsage {
+            .map(
+                |(user, (gpu_count, total_memory_mb, total_util, process_count))| UserUsage {
                     user,
                     gpu_count,
                     total_memory_mb,
                     avg_utilization: total_util / process_count as f32,
                     process_count,
-                }
-            })
+                },
+            )
             .collect();
 
         // Sort by memory usage
@@ -294,10 +296,16 @@ impl CoordinatorState {
         // Generate recommendations
         let mut recommendations = Vec::new();
         if !blocked_gpus.is_empty() {
-            recommendations.push(format!("{} GPUs are currently blocked by high utilization", blocked_gpus.len()));
+            recommendations.push(format!(
+                "{} GPUs are currently blocked by high utilization",
+                blocked_gpus.len()
+            ));
         }
         if let Some(top_user) = top_users.first() {
-            recommendations.push(format!("User '{}' is using the most GPU memory ({} MB)", top_user.user, top_user.total_memory_mb));
+            recommendations.push(format!(
+                "User '{}' is using the most GPU memory ({} MB)",
+                top_user.user, top_user.total_memory_mb
+            ));
         }
 
         Ok(ContentionAnalysis {
@@ -306,7 +314,6 @@ impl CoordinatorState {
             recommendations,
         })
     }
-
 
     /// Clean up stale nodes (offline for more than 5 minutes)
     pub async fn cleanup_stale_nodes(&self) -> Result<()> {
@@ -337,16 +344,16 @@ pub fn create_router(state: CoordinatorState) -> Router {
         .route("/api/nodes/:node_id/snapshot", post(update_snapshot))
         .route("/api/cluster/snapshot", get(get_cluster_snapshot))
         .route("/api/cluster/contention", get(get_contention_analysis))
-            .route("/api/cluster/rogue", get(get_rogue_analysis))
+        .route("/api/cluster/rogue", get(get_rogue_analysis))
         .route("/api/cluster/rogue/test", get(get_rogue_analysis_test))
-            .route("/api/guard/config", get(get_guard_config))
-            .route("/api/guard/config", post(update_guard_config))
-            .route("/api/guard/policies", get(get_guard_policies))
-            .route("/api/guard/policies", post(update_guard_policies))
-            .route("/api/guard/status", get(get_guard_status))
-            .route("/api/guard/toggle-dry-run", post(toggle_guard_dry_run))
-            .route("/api/guard/test-policies", post(test_guard_policies))
-            .route("/ws", get(websocket_handler))
+        .route("/api/guard/config", get(get_guard_config))
+        .route("/api/guard/config", post(update_guard_config))
+        .route("/api/guard/policies", get(get_guard_policies))
+        .route("/api/guard/policies", post(update_guard_policies))
+        .route("/api/guard/status", get(get_guard_status))
+        .route("/api/guard/toggle-dry-run", post(toggle_guard_dry_run))
+        .route("/api/guard/test-policies", post(test_guard_policies))
+        .route("/ws", get(websocket_handler))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -363,7 +370,9 @@ async fn register_node(
     Path(_node_id): Path<String>,
     Json(node_info): Json<NodeInfo>,
 ) -> Result<Json<()>, StatusCode> {
-    state.register_node(node_info).await
+    state
+        .register_node(node_info)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(()))
 }
@@ -374,104 +383,114 @@ async fn update_snapshot(
     Path(node_id): Path<String>,
     Json(snapshot): Json<NodeSnapshot>,
 ) -> Result<Json<()>, StatusCode> {
-    state.update_snapshot(node_id, snapshot).await
+    state
+        .update_snapshot(node_id, snapshot)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(()))
 }
 
 /// Get cluster snapshot
-async fn get_cluster_snapshot(State(state): State<CoordinatorState>) -> Json<Option<ClusterSnapshot>> {
+async fn get_cluster_snapshot(
+    State(state): State<CoordinatorState>,
+) -> Json<Option<ClusterSnapshot>> {
     let snapshot = state.get_cluster_snapshot().await;
     Json(snapshot)
 }
 
 /// Get contention analysis (Magic Moment)
-async fn get_contention_analysis(State(state): State<CoordinatorState>) -> Result<Json<ContentionAnalysis>, StatusCode> {
-    let analysis = state.get_contention_analysis().await
+async fn get_contention_analysis(
+    State(state): State<CoordinatorState>,
+) -> Result<Json<ContentionAnalysis>, StatusCode> {
+    let analysis = state
+        .get_contention_analysis()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(analysis))
 }
 
 /// Get rogue activity analysis
-async fn get_rogue_analysis(State(_state): State<CoordinatorState>) -> Result<Json<crate::rogue_detection::RogueDetectionResult>, StatusCode> {
+async fn get_rogue_analysis(
+    State(_state): State<CoordinatorState>,
+) -> Result<Json<crate::rogue_detection::RogueDetectionResult>, StatusCode> {
     use crate::audit::AuditManager;
     use crate::rogue_detection::RogueDetector;
-    
+
     // Initialize audit manager and rogue detector
-    let audit_manager = AuditManager::new().await
+    let audit_manager = AuditManager::new()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     let detector = RogueDetector::new(audit_manager);
-    let result = detector.detect_rogue_activity(24).await // Default to 24 hours
+    let result = detector
+        .detect_rogue_activity(24)
+        .await // Default to 24 hours
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+
     Ok(Json(result))
 }
 
 /// Get test rogue activity analysis with sample data
-async fn get_rogue_analysis_test() -> Result<Json<crate::rogue_detection::RogueDetectionResult>, StatusCode> {
-    use crate::rogue_detection::{RogueDetectionResult, SuspiciousProcess, CryptoMiner, ResourceAbuser, RiskLevel, AbuseType};
+async fn get_rogue_analysis_test(
+) -> Result<Json<crate::rogue_detection::RogueDetectionResult>, StatusCode> {
     use crate::nvml_api::GpuProc;
+    use crate::rogue_detection::{
+        AbuseType, CryptoMiner, ResourceAbuser, RiskLevel, RogueDetectionResult, SuspiciousProcess,
+    };
     use chrono::Utc;
-    
+
     let test_result = RogueDetectionResult {
         timestamp: Utc::now(),
-        suspicious_processes: vec![
-            SuspiciousProcess {
-                process: GpuProc {
-                    gpu_index: 0,
-                    pid: 12345,
-                    user: "hacker".to_string(),
-                    proc_name: "suspicious_miner".to_string(),
-                    used_mem_mb: 2048,
-                    start_time: "2025-09-20T01:00:00Z".to_string(),
-                    container: None,
-                },
-                reasons: vec![
-                    "High GPU utilization with low CPU usage".to_string(),
-                    "Process name contains mining keywords".to_string(),
-                    "Unusual memory allocation patterns".to_string(),
-                ],
-                confidence: 0.85,
-                risk_level: RiskLevel::High,
-            }
-        ],
-        crypto_miners: vec![
-            CryptoMiner {
-                process: GpuProc {
-                    gpu_index: 1,
-                    pid: 67890,
-                    user: "miner".to_string(),
-                    proc_name: "xmrig".to_string(),
-                    used_mem_mb: 1024,
-                    start_time: "2025-09-20T00:30:00Z".to_string(),
-                    container: None,
-                },
-                mining_indicators: vec![
-                    "Known cryptocurrency mining software".to_string(),
-                    "Extremely high GPU utilization".to_string(),
-                    "Long-running process with consistent resource usage".to_string(),
-                ],
-                confidence: 0.92,
-                estimated_hashrate: Some(150.5),
-            }
-        ],
-        resource_abusers: vec![
-            ResourceAbuser {
-                process: GpuProc {
-                    gpu_index: 2,
-                    pid: 11111,
-                    user: "abuser".to_string(),
-                    proc_name: "gpu_hog".to_string(),
-                    used_mem_mb: 8192,
-                    start_time: "2025-09-19T20:00:00Z".to_string(),
-                    container: None,
-                },
-                abuse_type: AbuseType::MemoryHog,
-                severity: 0.9,
-                duration_hours: 8.5,
-            }
-        ],
+        suspicious_processes: vec![SuspiciousProcess {
+            process: GpuProc {
+                gpu_index: 0,
+                pid: 12345,
+                user: "hacker".to_string(),
+                proc_name: "suspicious_miner".to_string(),
+                used_mem_mb: 2048,
+                start_time: "2025-09-20T01:00:00Z".to_string(),
+                container: None,
+            },
+            reasons: vec![
+                "High GPU utilization with low CPU usage".to_string(),
+                "Process name contains mining keywords".to_string(),
+                "Unusual memory allocation patterns".to_string(),
+            ],
+            confidence: 0.85,
+            risk_level: RiskLevel::High,
+        }],
+        crypto_miners: vec![CryptoMiner {
+            process: GpuProc {
+                gpu_index: 1,
+                pid: 67890,
+                user: "miner".to_string(),
+                proc_name: "xmrig".to_string(),
+                used_mem_mb: 1024,
+                start_time: "2025-09-20T00:30:00Z".to_string(),
+                container: None,
+            },
+            mining_indicators: vec![
+                "Known cryptocurrency mining software".to_string(),
+                "Extremely high GPU utilization".to_string(),
+                "Long-running process with consistent resource usage".to_string(),
+            ],
+            confidence: 0.92,
+            estimated_hashrate: Some(150.5),
+        }],
+        resource_abusers: vec![ResourceAbuser {
+            process: GpuProc {
+                gpu_index: 2,
+                pid: 11111,
+                user: "abuser".to_string(),
+                proc_name: "gpu_hog".to_string(),
+                used_mem_mb: 8192,
+                start_time: "2025-09-19T20:00:00Z".to_string(),
+                container: None,
+            },
+            abuse_type: AbuseType::MemoryHog,
+            severity: 0.9,
+            duration_hours: 8.5,
+        }],
         data_exfiltrators: vec![],
         risk_score: 0.78,
         recommendations: vec![
@@ -481,7 +500,7 @@ async fn get_rogue_analysis_test() -> Result<Json<crate::rogue_detection::RogueD
             "📊 Consider implementing GPU usage quotas per user".to_string(),
         ],
     };
-    
+
     Ok(Json(test_result))
 }
 
@@ -509,7 +528,7 @@ async fn websocket_connection(socket: axum::extract::ws::WebSocket, state: Coord
 
     // Handle incoming messages and send periodic updates
     let mut interval = tokio::time::interval(Duration::from_secs(5));
-    
+
     loop {
         tokio::select! {
             _ = interval.tick() => {
@@ -534,11 +553,12 @@ async fn websocket_connection(socket: axum::extract::ws::WebSocket, state: Coord
 }
 
 /// Get Guard Mode configuration
-async fn get_guard_config(State(_state): State<CoordinatorState>) -> Result<Json<crate::guard_mode::GuardModeConfig>, StatusCode> {
+async fn get_guard_config(
+    State(_state): State<CoordinatorState>,
+) -> Result<Json<crate::guard_mode::GuardModeConfig>, StatusCode> {
     use crate::guard_mode::GuardModeManager;
 
-    let guard_manager = GuardModeManager::new()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let guard_manager = GuardModeManager::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let config = guard_manager.get_config();
     Ok(Json(config.clone()))
@@ -551,24 +571,28 @@ async fn update_guard_config(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     use crate::guard_mode::GuardModeManager;
 
-    let mut guard_manager = GuardModeManager::new()
+    let mut guard_manager =
+        GuardModeManager::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    guard_manager
+        .update_config(config)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    guard_manager.update_config(config)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(serde_json::json!({"success": true, "message": "Guard Mode configuration updated"})))
+    Ok(Json(
+        serde_json::json!({"success": true, "message": "Guard Mode configuration updated"}),
+    ))
 }
 
 /// Get Guard Mode policies
-async fn get_guard_policies(State(_state): State<CoordinatorState>) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn get_guard_policies(
+    State(_state): State<CoordinatorState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     use crate::guard_mode::GuardModeManager;
 
-    let guard_manager = GuardModeManager::new()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let guard_manager = GuardModeManager::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let config = guard_manager.get_config();
-    
+
     let policies = serde_json::json!({
         "user_policies": config.user_policies,
         "group_policies": config.group_policies,
@@ -587,28 +611,35 @@ async fn update_guard_policies(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     use crate::guard_mode::GuardModeManager;
 
-    let mut guard_manager = GuardModeManager::new()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut guard_manager =
+        GuardModeManager::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Parse and update policies
     if let Some(user_policies) = policies.get("user_policies") {
-        if let Ok(user_policies_map) = serde_json::from_value::<std::collections::HashMap<String, crate::guard_mode::UserPolicy>>(user_policies.clone()) {
+        if let Ok(user_policies_map) = serde_json::from_value::<
+            std::collections::HashMap<String, crate::guard_mode::UserPolicy>,
+        >(user_policies.clone())
+        {
             for (_, policy) in user_policies_map {
-                guard_manager.add_user_policy(policy)
+                guard_manager
+                    .add_user_policy(policy)
                     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             }
         }
     }
 
-    Ok(Json(serde_json::json!({"success": true, "message": "Policies updated"})))
+    Ok(Json(
+        serde_json::json!({"success": true, "message": "Policies updated"}),
+    ))
 }
 
 /// Get Guard Mode status
-async fn get_guard_status(State(_state): State<CoordinatorState>) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn get_guard_status(
+    State(_state): State<CoordinatorState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     use crate::guard_mode::GuardModeManager;
 
-    let guard_manager = GuardModeManager::new()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let guard_manager = GuardModeManager::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let config = guard_manager.get_config();
     let violation_history = guard_manager.get_violation_history();
@@ -632,13 +663,16 @@ async fn get_guard_status(State(_state): State<CoordinatorState>) -> Result<Json
 }
 
 /// Toggle Guard Mode dry-run
-async fn toggle_guard_dry_run(State(_state): State<CoordinatorState>) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn toggle_guard_dry_run(
+    State(_state): State<CoordinatorState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     use crate::guard_mode::GuardModeManager;
 
-    let mut guard_manager = GuardModeManager::new()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut guard_manager =
+        GuardModeManager::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let new_dry_run = guard_manager.toggle_dry_run()
+    let new_dry_run = guard_manager
+        .toggle_dry_run()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({
@@ -649,20 +683,23 @@ async fn toggle_guard_dry_run(State(_state): State<CoordinatorState>) -> Result<
 }
 
 /// Test Guard Mode policies
-async fn test_guard_policies(State(_state): State<CoordinatorState>) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn test_guard_policies(
+    State(_state): State<CoordinatorState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     use crate::guard_mode::GuardModeManager;
     use crate::vendor::GpuManager;
 
-    let mut guard_manager = GuardModeManager::new()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut guard_manager =
+        GuardModeManager::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get current GPU processes for testing
-    let gpu_manager = GpuManager::initialize()
+    let gpu_manager = GpuManager::initialize().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let test_processes = gpu_manager
+        .get_all_processes()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let test_processes = gpu_manager.get_all_processes()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let result = guard_manager.simulate_policy_check(&test_processes)
+
+    let result = guard_manager
+        .simulate_policy_check(&test_processes)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(serde_json::json!({

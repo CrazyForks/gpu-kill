@@ -1,5 +1,5 @@
-use clap::{Parser, ValueEnum};
 use crate::vendor::GpuVendor;
+use clap::{Parser, ValueEnum};
 
 /// A production-ready CLI tool for GPU management and monitoring
 #[derive(Parser)]
@@ -363,7 +363,17 @@ impl Cli {
     /// Validate argument combinations
     fn validate(&self) {
         // Check that exactly one operation is specified
-        let operation_count = [self.list, self.kill, self.reset, self.audit, self.server, self.guard].iter().filter(|&&x| x).count();
+        let operation_count = [
+            self.list,
+            self.kill,
+            self.reset,
+            self.audit,
+            self.server,
+            self.guard,
+        ]
+        .iter()
+        .filter(|&&x| x)
+        .count();
         if operation_count == 0 {
             eprintln!("Error: Exactly one of --list, --kill, --reset, --audit, --server, or --guard must be specified");
             std::process::exit(3);
@@ -379,12 +389,12 @@ impl Cli {
                 eprintln!("Error: --kill cannot use both --pid and --filter");
                 std::process::exit(3);
             }
-            
+
             if self.pid.is_none() && self.filter.is_none() {
                 eprintln!("Error: --kill requires either --pid <PID> or --filter <PATTERN>");
                 std::process::exit(3);
             }
-            
+
             if let Some(pid) = self.pid {
                 if pid == 0 {
                     eprintln!("Error: PID must be greater than 0");
@@ -483,7 +493,16 @@ mod tests {
 
     #[test]
     fn test_kill_with_custom_timeout_and_force() {
-        let cli = Cli::try_parse_from(["gpukill", "--kill", "--pid", "12345", "--timeout-secs", "10", "--force"]).unwrap();
+        let cli = Cli::try_parse_from([
+            "gpukill",
+            "--kill",
+            "--pid",
+            "12345",
+            "--timeout-secs",
+            "10",
+            "--force",
+        ])
+        .unwrap();
         assert!(cli.kill);
         assert_eq!(cli.pid, Some(12345));
         assert_eq!(cli.timeout_secs, 10);

@@ -21,7 +21,11 @@ impl EnhancedProcessManager {
     }
 
     /// Filter processes by name pattern (supports regex)
-    pub fn filter_processes_by_name(&mut self, processes: &[GpuProc], pattern: &str) -> Result<Vec<GpuProc>> {
+    pub fn filter_processes_by_name(
+        &mut self,
+        processes: &[GpuProc],
+        pattern: &str,
+    ) -> Result<Vec<GpuProc>> {
         let regex = Regex::new(pattern)
             .map_err(|e| anyhow::anyhow!("Invalid regex pattern '{}': {}", pattern, e))?;
 
@@ -36,7 +40,11 @@ impl EnhancedProcessManager {
     }
 
     /// Filter processes by user
-    pub fn filter_processes_by_user(&mut self, processes: &[GpuProc], user: &str) -> Result<Vec<GpuProc>> {
+    pub fn filter_processes_by_user(
+        &mut self,
+        processes: &[GpuProc],
+        user: &str,
+    ) -> Result<Vec<GpuProc>> {
         let regex = Regex::new(user)
             .map_err(|e| anyhow::anyhow!("Invalid regex pattern '{}': {}", user, e))?;
 
@@ -51,7 +59,11 @@ impl EnhancedProcessManager {
     }
 
     /// Filter processes by memory usage threshold
-    pub fn filter_processes_by_memory(&mut self, processes: &[GpuProc], min_mb: u32) -> Vec<GpuProc> {
+    pub fn filter_processes_by_memory(
+        &mut self,
+        processes: &[GpuProc],
+        min_mb: u32,
+    ) -> Vec<GpuProc> {
         processes
             .iter()
             .filter(|proc| proc.used_mem_mb >= min_mb)
@@ -62,13 +74,13 @@ impl EnhancedProcessManager {
     /// Get process tree for a given PID
     pub fn get_process_tree(&mut self, root_pid: u32) -> Result<Vec<u32>> {
         self.system.refresh_processes();
-        
+
         let mut pids = Vec::new();
         let mut to_process = vec![root_pid];
-        
+
         while let Some(pid) = to_process.pop() {
             pids.push(pid);
-            
+
             // Find child processes
             for process in self.system.processes().values() {
                 if let Some(parent) = process.parent() {
@@ -78,44 +90,69 @@ impl EnhancedProcessManager {
                 }
             }
         }
-        
+
         Ok(pids)
     }
 
     /// Kill a process and its children
-    pub fn kill_process_tree(&mut self, root_pid: u32, timeout_secs: u16, force: bool) -> Result<()> {
+    pub fn kill_process_tree(
+        &mut self,
+        root_pid: u32,
+        timeout_secs: u16,
+        force: bool,
+    ) -> Result<()> {
         let pids = self.get_process_tree(root_pid)?;
-        
+
         tracing::info!("Killing process tree: {:?}", pids);
-        
+
         // Kill children first, then parent
         for pid in pids.iter().rev() {
-            if let Err(e) = self.process_manager.graceful_kill(*pid, timeout_secs, force) {
+            if let Err(e) = self
+                .process_manager
+                .graceful_kill(*pid, timeout_secs, force)
+            {
                 tracing::warn!("Failed to kill process {}: {}", pid, e);
             }
         }
-        
+
         Ok(())
     }
 
     /// Batch kill processes matching a pattern
-    pub fn batch_kill_processes(&mut self, processes: &[GpuProc], timeout_secs: u16, force: bool) -> Result<Vec<u32>> {
+    pub fn batch_kill_processes(
+        &mut self,
+        processes: &[GpuProc],
+        timeout_secs: u16,
+        force: bool,
+    ) -> Result<Vec<u32>> {
         let mut killed_pids = Vec::new();
         let mut failed_pids = Vec::new();
-        
+
         for proc in processes {
-            match self.process_manager.graceful_kill(proc.pid, timeout_secs, force) {
+            match self
+                .process_manager
+                .graceful_kill(proc.pid, timeout_secs, force)
+            {
                 Ok(()) => {
                     killed_pids.push(proc.pid);
-                    tracing::info!("Successfully killed process {} ({})", proc.pid, proc.proc_name);
+                    tracing::info!(
+                        "Successfully killed process {} ({})",
+                        proc.pid,
+                        proc.proc_name
+                    );
                 }
                 Err(e) => {
                     failed_pids.push(proc.pid);
-                    tracing::warn!("Failed to kill process {} ({}): {}", proc.pid, proc.proc_name, e);
+                    tracing::warn!(
+                        "Failed to kill process {} ({}): {}",
+                        proc.pid,
+                        proc.proc_name,
+                        e
+                    );
                 }
             }
         }
-        
+
         if !failed_pids.is_empty() {
             return Err(anyhow::anyhow!(
                 "Failed to kill {} processes: {:?}",
@@ -123,51 +160,54 @@ impl EnhancedProcessManager {
                 failed_pids
             ));
         }
-        
+
         Ok(killed_pids)
     }
 
     /// Detect if a process is running in a container
     pub fn detect_container(&mut self, pid: u32) -> Result<Option<String>> {
         self.system.refresh_processes();
-        
+
         let sys_pid = SysPid::from_u32(pid);
-        let process = self.system.process(sys_pid)
+        let process = self
+            .system
+            .process(sys_pid)
             .ok_or_else(|| anyhow::anyhow!("Process {} not found", pid))?;
 
         // Check for common container indicators
         let cmdline = process.cmd().join(" ");
-        
+
         // Docker
         if cmdline.contains("docker") || cmdline.contains("containerd") {
             return Ok(Some("docker".to_string()));
         }
-        
+
         // Podman
         if cmdline.contains("podman") {
             return Ok(Some("podman".to_string()));
         }
-        
+
         // Kubernetes
         if cmdline.contains("kubelet") || cmdline.contains("k8s") {
             return Ok(Some("kubernetes".to_string()));
         }
-        
+
         // LXC
         if cmdline.contains("lxc") {
             return Ok(Some("lxc".to_string()));
         }
-        
+
         // Check environment variables for container indicators
         let env = process.environ();
         for env_var in env {
-            if env_var.starts_with("CONTAINER") || 
-               env_var.starts_with("DOCKER") || 
-               env_var.starts_with("KUBERNETES") {
+            if env_var.starts_with("CONTAINER")
+                || env_var.starts_with("DOCKER")
+                || env_var.starts_with("KUBERNETES")
+            {
                 return Ok(Some("container".to_string()));
             }
         }
-        
+
         Ok(None)
     }
 
@@ -182,24 +222,27 @@ impl EnhancedProcessManager {
                 }
             }
         }
-        
+
         Ok(processes)
     }
 
     /// Get process statistics
     pub fn get_process_stats(&mut self, processes: &[GpuProc]) -> ProcessStats {
         let mut stats = ProcessStats::default();
-        
+
         for proc in processes {
             stats.total_processes += 1;
             stats.total_memory_mb += proc.used_mem_mb;
-            
+
             // Count by user
             *stats.users.entry(proc.user.clone()).or_insert(0) += 1;
-            
+
             // Count by process name
-            *stats.process_names.entry(proc.proc_name.clone()).or_insert(0) += 1;
-            
+            *stats
+                .process_names
+                .entry(proc.proc_name.clone())
+                .or_insert(0) += 1;
+
             // Count containers
             if let Some(container) = &proc.container {
                 *stats.containers.entry(container.clone()).or_insert(0) += 1;
@@ -207,7 +250,7 @@ impl EnhancedProcessManager {
                 stats.non_container_processes += 1;
             }
         }
-        
+
         stats
     }
 }
@@ -228,29 +271,33 @@ impl std::fmt::Display for ProcessStats {
         writeln!(f, "Process Statistics:")?;
         writeln!(f, "  Total processes: {}", self.total_processes)?;
         writeln!(f, "  Total memory: {} MB", self.total_memory_mb)?;
-        writeln!(f, "  Non-container processes: {}", self.non_container_processes)?;
-        
+        writeln!(
+            f,
+            "  Non-container processes: {}",
+            self.non_container_processes
+        )?;
+
         if !self.users.is_empty() {
             writeln!(f, "  Users:")?;
             for (user, count) in &self.users {
                 writeln!(f, "    {}: {}", user, count)?;
             }
         }
-        
+
         if !self.process_names.is_empty() {
             writeln!(f, "  Process names:")?;
             for (name, count) in &self.process_names {
                 writeln!(f, "    {}: {}", name, count)?;
             }
         }
-        
+
         if !self.containers.is_empty() {
             writeln!(f, "  Containers:")?;
             for (container, count) in &self.containers {
                 writeln!(f, "    {}: {}", container, count)?;
             }
         }
-        
+
         Ok(())
     }
 }
@@ -287,7 +334,9 @@ mod tests {
                 system: System::new_all(),
             };
 
-            let filtered = manager.filter_processes_by_name(&processes, "python").unwrap();
+            let filtered = manager
+                .filter_processes_by_name(&processes, "python")
+                .unwrap();
             assert_eq!(filtered.len(), 2);
             assert_eq!(filtered[0].proc_name, "python");
             assert_eq!(filtered[1].proc_name, "python3");

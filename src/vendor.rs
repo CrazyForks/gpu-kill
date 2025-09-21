@@ -201,7 +201,8 @@ impl GpuVendorInterface for NvidiaVendor {
     }
 
     fn get_availability_error() -> String {
-        "NVIDIA drivers not installed or NVML not available. Please install NVIDIA drivers.".to_string()
+        "NVIDIA drivers not installed or NVML not available. Please install NVIDIA drivers."
+            .to_string()
     }
 }
 
@@ -232,18 +233,21 @@ impl GpuVendorInterface for AmdVendor {
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
         if !output.status.success() {
-            return Err(anyhow::anyhow!("rocm-smi failed: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(anyhow::anyhow!(
+                "rocm-smi failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        
+
         // Parse the output to count actual devices
         // rocm-smi --showid outputs device IDs, one per line
         let device_count = stdout
             .lines()
             .filter(|line| !line.trim().is_empty() && !line.starts_with("GPU"))
             .count();
-            
+
         Ok(device_count as u32)
     }
 
@@ -254,7 +258,10 @@ impl GpuVendorInterface for AmdVendor {
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
         if !output.status.success() {
-            return Err(anyhow::anyhow!("rocm-smi failed: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(anyhow::anyhow!(
+                "rocm-smi failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -460,12 +467,16 @@ impl GpuVendorInterface for IntelVendor {
             .map_err(|e| anyhow::anyhow!("Failed to run intel_gpu_top: {}", e))?;
 
         if !output.status.success() {
-            return Err(anyhow::anyhow!("intel_gpu_top failed: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(anyhow::anyhow!(
+                "intel_gpu_top failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         // Count GPU entries in the output
-        let gpu_count = stdout.lines()
+        let gpu_count = stdout
+            .lines()
             .filter(|line| line.contains("GPU") || line.contains("Render"))
             .count() as u32;
 
@@ -480,7 +491,10 @@ impl GpuVendorInterface for IntelVendor {
             .map_err(|e| anyhow::anyhow!("Failed to run intel_gpu_top: {}", e))?;
 
         if !output.status.success() {
-            return Err(anyhow::anyhow!("intel_gpu_top failed: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(anyhow::anyhow!(
+                "intel_gpu_top failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -500,8 +514,8 @@ impl GpuVendorInterface for IntelVendor {
         // Intel GPUs typically have varying memory sizes
         // We'll use a reasonable default and could enhance this later
         let mem_total_mb = match index {
-            0 => 4096,  // 4GB for integrated graphics
-            _ => 8192,  // 8GB for discrete GPUs
+            0 => 4096, // 4GB for integrated graphics
+            _ => 8192, // 8GB for discrete GPUs
         };
 
         Ok(GpuInfo {
@@ -549,7 +563,7 @@ impl GpuVendorInterface for IntelVendor {
             mem_used_mb,
             mem_total_mb: gpu_info.mem_total_mb,
             util_pct,
-            temp_c: 0, // Not available via intel_gpu_top
+            temp_c: 0,    // Not available via intel_gpu_top
             power_w: 0.0, // Not available via intel_gpu_top
             ecc_volatile: None,
             pids: 0, // Process detection would require additional parsing
@@ -567,7 +581,9 @@ impl GpuVendorInterface for IntelVendor {
     fn reset_gpu(&self, _index: u32) -> Result<()> {
         // Intel GPU reset is not directly supported via command line
         // This would require kernel-level operations or driver-specific tools
-        Err(anyhow::anyhow!("Intel GPU reset not supported via command line tools"))
+        Err(anyhow::anyhow!(
+            "Intel GPU reset not supported via command line tools"
+        ))
     }
 
     fn is_available() -> bool {
@@ -601,7 +617,7 @@ impl GpuVendorInterface for AppleVendor {
 
         // Get initial GPU info
         let gpu_info = Self::get_system_gpu_info()?;
-        
+
         Ok(Self {
             gpu_info: Some(gpu_info),
         })
@@ -620,7 +636,7 @@ impl GpuVendorInterface for AppleVendor {
         if index > 0 {
             return Err(anyhow::anyhow!("Apple Silicon only supports GPU index 0"));
         }
-        
+
         if let Some(ref info) = self.gpu_info {
             Ok(info.clone())
         } else {
@@ -634,10 +650,10 @@ impl GpuVendorInterface for AppleVendor {
         }
 
         let gpu_info = self.get_gpu_info(index)?;
-        
+
         // Get memory usage from vm_stat
         let mem_used_mb = Self::get_gpu_memory_usage()?;
-        
+
         // Get processes using Metal/GPU
         let processes = self.get_gpu_processes(index)?;
         let pids = processes.len();
@@ -649,9 +665,9 @@ impl GpuVendorInterface for AppleVendor {
             vendor: GpuVendor::Apple,
             mem_used_mb,
             mem_total_mb: gpu_info.mem_total_mb,
-            util_pct: 0.0, // Not easily available on Apple Silicon
-            temp_c: 0, // Not available via system APIs
-            power_w: 0.0, // Not available via system APIs
+            util_pct: 0.0,      // Not easily available on Apple Silicon
+            temp_c: 0,          // Not available via system APIs
+            power_w: 0.0,       // Not available via system APIs
             ecc_volatile: None, // Not applicable to Apple Silicon
             pids,
             top_proc,
@@ -672,19 +688,17 @@ impl GpuVendorInterface for AppleVendor {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut processes = Vec::new();
 
-        for line in stdout.lines().skip(1) { // Skip header
+        for line in stdout.lines().skip(1) {
+            // Skip header
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 4 {
-                if let (Ok(pid), user, comm, mem_str) = (
-                    parts[0].parse::<u32>(),
-                    parts[1],
-                    parts[2],
-                    parts[3],
-                ) {
+                if let (Ok(pid), user, comm, mem_str) =
+                    (parts[0].parse::<u32>(), parts[1], parts[2], parts[3])
+                {
                     // Check if this process might be using GPU
                     if Self::is_gpu_process(comm) {
                         let mem_mb = Self::parse_memory_usage(mem_str, user)?;
-                        
+
                         processes.push(GpuProc {
                             gpu_index: 0,
                             pid,
@@ -705,7 +719,9 @@ impl GpuVendorInterface for AppleVendor {
     fn reset_gpu(&self, _index: u32) -> Result<()> {
         // Apple Silicon GPU reset is not directly supported via system APIs
         // This would require kernel-level operations
-        Err(anyhow::anyhow!("Apple Silicon GPU reset not supported via system APIs"))
+        Err(anyhow::anyhow!(
+            "Apple Silicon GPU reset not supported via system APIs"
+        ))
     }
 
     fn is_available() -> bool {
@@ -722,7 +738,11 @@ impl GpuVendorInterface for AppleVendor {
         if let Ok(output) = output {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                return stdout.contains("Apple") && (stdout.contains("M1") || stdout.contains("M2") || stdout.contains("M3") || stdout.contains("M4"));
+                return stdout.contains("Apple")
+                    && (stdout.contains("M1")
+                        || stdout.contains("M2")
+                        || stdout.contains("M3")
+                        || stdout.contains("M4"));
             }
         }
 
@@ -748,7 +768,7 @@ impl AppleVendor {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        
+
         // Parse GPU name and memory
         let mut name = "Apple Silicon GPU".to_string();
         let mut mem_total_mb = 8192; // Default fallback
@@ -826,12 +846,27 @@ impl AppleVendor {
     /// Check if a process is likely using GPU
     fn is_gpu_process(comm: &str) -> bool {
         let gpu_keywords = [
-            "Metal", "OpenGL", "CoreAnimation", "Quartz", "WindowServer",
-            "python", "tensorflow", "pytorch", "jupyter", "matplotlib",
-            "ffmpeg", "blender", "unity", "unreal", "xcode", "simulator",
+            "Metal",
+            "OpenGL",
+            "CoreAnimation",
+            "Quartz",
+            "WindowServer",
+            "python",
+            "tensorflow",
+            "pytorch",
+            "jupyter",
+            "matplotlib",
+            "ffmpeg",
+            "blender",
+            "unity",
+            "unreal",
+            "xcode",
+            "simulator",
         ];
 
-        gpu_keywords.iter().any(|&keyword| comm.to_lowercase().contains(keyword))
+        gpu_keywords
+            .iter()
+            .any(|&keyword| comm.to_lowercase().contains(keyword))
     }
 
     /// Parse memory usage from ps output

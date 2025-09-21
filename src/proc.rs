@@ -33,10 +33,7 @@ impl ProcessManager {
         let mut system = System::new_all();
         system.refresh_all();
 
-        Self {
-            nvml_api,
-            system,
-        }
+        Self { nvml_api, system }
     }
 
     /// Get process information by PID
@@ -44,11 +41,12 @@ impl ProcessManager {
         self.system.refresh_processes();
 
         let sys_pid = SysPid::from_u32(pid);
-        let process = self.system.process(sys_pid)
+        let process = self
+            .system
+            .process(sys_pid)
             .ok_or_else(|| anyhow::anyhow!("Process with PID {} not found", pid))?;
 
-        let user = get_process_user(pid)
-            .unwrap_or_else(|_| "unknown".to_string());
+        let user = get_process_user(pid).unwrap_or_else(|_| "unknown".to_string());
 
         let start_time = process.start_time();
         let start_time_system = SystemTime::UNIX_EPOCH + Duration::from_secs(start_time);
@@ -68,18 +66,12 @@ impl ProcessManager {
     }
 
     /// Gracefully terminate a process with timeout and escalation
-    pub fn graceful_kill(
-        &self,
-        pid: u32,
-        timeout_secs: u16,
-        force: bool,
-    ) -> Result<()> {
+    pub fn graceful_kill(&self, pid: u32, timeout_secs: u16, force: bool) -> Result<()> {
         let pid = Pid::from_raw(pid as i32);
 
         // First, try SIGTERM
         tracing::info!("Sending SIGTERM to process {}", pid);
-        kill(pid, Signal::SIGTERM)
-            .map_err(|e| anyhow::anyhow!("Failed to send SIGTERM: {}", e))?;
+        kill(pid, Signal::SIGTERM).map_err(|e| anyhow::anyhow!("Failed to send SIGTERM: {}", e))?;
 
         // Wait for the process to terminate
         let timeout = Duration::from_secs(timeout_secs as u64);
@@ -108,7 +100,10 @@ impl ProcessManager {
                 tracing::info!("Process {} terminated with SIGKILL", pid);
                 Ok(())
             } else {
-                Err(anyhow::anyhow!("Process {} still running after SIGKILL", pid))
+                Err(anyhow::anyhow!(
+                    "Process {} still running after SIGKILL",
+                    pid
+                ))
             }
         } else {
             Err(anyhow::anyhow!(
@@ -126,7 +121,10 @@ impl ProcessManager {
     }
 
     /// Enrich GPU processes with system information
-    pub fn enrich_gpu_processes(&mut self, mut processes: Vec<crate::nvml_api::GpuProc>) -> Result<Vec<crate::nvml_api::GpuProc>> {
+    pub fn enrich_gpu_processes(
+        &mut self,
+        mut processes: Vec<crate::nvml_api::GpuProc>,
+    ) -> Result<Vec<crate::nvml_api::GpuProc>> {
         self.system.refresh_processes();
 
         for process in &mut processes {
@@ -197,9 +195,10 @@ fn get_process_user(pid: u32) -> Result<String> {
             if line.starts_with("Uid:") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 2 {
-                    let uid = parts[1].parse::<u32>()
+                    let uid = parts[1]
+                        .parse::<u32>()
                         .with_context(|| format!("Failed to parse UID: {}", parts[1]))?;
-                    
+
                     // Get username from UID
                     return get_username_from_uid(uid);
                 }
@@ -229,7 +228,14 @@ fn get_process_user(pid: u32) -> Result<String> {
         use std::process::Command;
         // On Windows, use wmic command
         let output = Command::new("wmic")
-            .args(&["process", "where", &format!("ProcessId={}", pid), "get", "ExecutablePath", "/format:value"])
+            .args(&[
+                "process",
+                "where",
+                &format!("ProcessId={}", pid),
+                "get",
+                "ExecutablePath",
+                "/format:value",
+            ])
             .output()
             .context("Failed to execute wmic command")?;
 
@@ -289,9 +295,9 @@ mod tests {
                 return;
             }
         };
-        
+
         let mut proc_mgr = ProcessManager::new(nvml_api);
-        
+
         // Test with a known process (init/systemd)
         if let Ok(info) = proc_mgr.get_process_info(1) {
             assert_eq!(info.pid, 1);
@@ -309,9 +315,9 @@ mod tests {
                 return;
             }
         };
-        
+
         let proc_mgr = ProcessManager::new(nvml_api);
-        
+
         // Test validation of non-existent process
         let result = proc_mgr.validate_process(999999, false);
         assert!(result.is_err());

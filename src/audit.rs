@@ -2,9 +2,9 @@ use crate::nvml_api::{GpuProc, GpuSnapshot};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
 
 /// Audit record for GPU usage
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,9 +43,9 @@ impl AuditManager {
     /// Initialize the audit manager with JSON file storage
     pub async fn new() -> Result<Self> {
         let data_dir = Self::get_data_dir()?;
-        
+
         tracing::debug!("Initializing audit storage at: {}", data_dir.display());
-        
+
         // Create directory if it doesn't exist
         fs::create_dir_all(&data_dir)
             .map_err(|e| anyhow::anyhow!("Failed to create audit directory: {}", e))?;
@@ -63,16 +63,20 @@ impl AuditManager {
         } else {
             std::env::current_dir()?
         };
-        
+
         path.push("gpukill");
         Ok(path)
     }
 
     /// Log GPU usage snapshot
-    pub async fn log_snapshot(&self, snapshots: &[GpuSnapshot], processes: &[GpuProc]) -> Result<()> {
+    pub async fn log_snapshot(
+        &self,
+        snapshots: &[GpuSnapshot],
+        processes: &[GpuProc],
+    ) -> Result<()> {
         let timestamp = Utc::now();
         let mut records = Vec::new();
-        
+
         for snapshot in snapshots {
             // Log GPU-level information
             let gpu_record = AuditRecord {
@@ -93,7 +97,10 @@ impl AuditManager {
             records.push(gpu_record);
 
             // Log process-level information
-            for process in processes.iter().filter(|p| p.gpu_index == snapshot.gpu_index) {
+            for process in processes
+                .iter()
+                .filter(|p| p.gpu_index == snapshot.gpu_index)
+            {
                 let process_record = AuditRecord {
                     id: timestamp.timestamp_millis() + process.pid as i64, // Use timestamp + PID as ID
                     timestamp,
@@ -104,8 +111,8 @@ impl AuditManager {
                     process_name: Some(process.proc_name.clone()),
                     memory_used_mb: process.used_mem_mb,
                     utilization_pct: 0.0, // Process-level utilization not available
-                    temperature_c: 0, // Process-level temperature not available
-                    power_w: 0.0, // Process-level power not available
+                    temperature_c: 0,     // Process-level temperature not available
+                    power_w: 0.0,         // Process-level power not available
                     container: process.container.clone(),
                 };
 
@@ -121,7 +128,7 @@ impl AuditManager {
     /// Append records to JSON file
     async fn append_records(&self, records: &[AuditRecord]) -> Result<()> {
         let file_path = self.data_dir.join("audit.jsonl");
-        
+
         // Create a JSON Lines file (one JSON object per line)
         let mut file = fs::OpenOptions::new()
             .create(true)
@@ -148,7 +155,7 @@ impl AuditManager {
     ) -> Result<Vec<AuditRecord>> {
         let since = Utc::now() - chrono::Duration::hours(hours as i64);
         let file_path = self.data_dir.join("audit.jsonl");
-        
+
         if !file_path.exists() {
             return Ok(Vec::new());
         }
@@ -161,15 +168,15 @@ impl AuditManager {
             if line.trim().is_empty() {
                 continue;
             }
-            
+
             let record: AuditRecord = serde_json::from_str(line)
                 .map_err(|e| anyhow::anyhow!("Failed to parse audit record: {}", e))?;
-            
+
             // Filter by time
             if record.timestamp < since {
                 continue;
             }
-            
+
             // Filter by user
             if let Some(user) = user_filter {
                 if let Some(ref record_user) = record.user {
@@ -180,7 +187,7 @@ impl AuditManager {
                     continue;
                 }
             }
-            
+
             // Filter by process
             if let Some(process) = process_filter {
                 if let Some(ref record_process) = record.process_name {
@@ -191,7 +198,7 @@ impl AuditManager {
                     continue;
                 }
             }
-            
+
             records.push(record);
         }
 
@@ -204,7 +211,7 @@ impl AuditManager {
     pub async fn get_summary(&self, hours: u32) -> Result<AuditSummary> {
         let since = Utc::now() - chrono::Duration::hours(hours as i64);
         let file_path = self.data_dir.join("audit.jsonl");
-        
+
         if !file_path.exists() {
             return Ok(AuditSummary {
                 total_records: 0,
@@ -223,10 +230,10 @@ impl AuditManager {
             if line.trim().is_empty() {
                 continue;
             }
-            
+
             let record: AuditRecord = serde_json::from_str(line)
                 .map_err(|e| anyhow::anyhow!("Failed to parse audit record: {}", e))?;
-            
+
             if record.timestamp >= since {
                 records.push(record);
             }
@@ -235,7 +242,8 @@ impl AuditManager {
         let total_records = records.len() as u64;
 
         // Calculate top users
-        let mut user_stats: std::collections::HashMap<String, (u64, u32)> = std::collections::HashMap::new();
+        let mut user_stats: std::collections::HashMap<String, (u64, u32)> =
+            std::collections::HashMap::new();
         for record in &records {
             if let Some(ref user) = record.user {
                 let entry = user_stats.entry(user.clone()).or_insert((0, 0));
@@ -243,14 +251,16 @@ impl AuditManager {
                 entry.1 += record.memory_used_mb;
             }
         }
-        let mut top_users: Vec<(String, u64, u32)> = user_stats.into_iter()
+        let mut top_users: Vec<(String, u64, u32)> = user_stats
+            .into_iter()
             .map(|(user, (count, memory))| (user, count, memory))
             .collect();
         top_users.sort_by(|a, b| b.2.cmp(&a.2));
         top_users.truncate(10);
 
         // Calculate top processes
-        let mut process_stats: std::collections::HashMap<String, (u64, u32)> = std::collections::HashMap::new();
+        let mut process_stats: std::collections::HashMap<String, (u64, u32)> =
+            std::collections::HashMap::new();
         for record in &records {
             if let Some(ref process) = record.process_name {
                 let entry = process_stats.entry(process.clone()).or_insert((0, 0));
@@ -258,7 +268,8 @@ impl AuditManager {
                 entry.1 += record.memory_used_mb;
             }
         }
-        let mut top_processes: Vec<(String, u64, u32)> = process_stats.into_iter()
+        let mut top_processes: Vec<(String, u64, u32)> = process_stats
+            .into_iter()
             .map(|(process, (count, memory))| (process, count, memory))
             .collect();
         top_processes.sort_by(|a, b| b.2.cmp(&a.2));
@@ -269,18 +280,19 @@ impl AuditManager {
         for hour in 0..hours {
             let hour_start = since + chrono::Duration::hours(hour as i64);
             let hour_end = hour_start + chrono::Duration::hours(1);
-            
-            let hour_records: Vec<&AuditRecord> = records.iter()
+
+            let hour_records: Vec<&AuditRecord> = records
+                .iter()
                 .filter(|r| r.timestamp >= hour_start && r.timestamp < hour_end)
                 .collect();
-            
+
             let avg_memory = if hour_records.is_empty() {
                 0.0
             } else {
                 let total_memory: u32 = hour_records.iter().map(|r| r.memory_used_mb).sum();
                 total_memory as f64 / hour_records.len() as f64
             };
-            
+
             gpu_usage_by_hour.push((hour, avg_memory as u32));
         }
 
@@ -297,7 +309,7 @@ impl AuditManager {
     pub async fn cleanup_old_records(&self, keep_days: u32) -> Result<u64> {
         let cutoff = Utc::now() - chrono::Duration::days(keep_days as i64);
         let file_path = self.data_dir.join("audit.jsonl");
-        
+
         if !file_path.exists() {
             return Ok(0);
         }
@@ -310,10 +322,10 @@ impl AuditManager {
             if line.trim().is_empty() {
                 continue;
             }
-            
+
             let record: AuditRecord = serde_json::from_str(line)
                 .map_err(|e| anyhow::anyhow!("Failed to parse audit record: {}", e))?;
-            
+
             if record.timestamp >= cutoff {
                 records.push(record);
             }

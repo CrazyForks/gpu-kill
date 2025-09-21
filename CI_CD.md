@@ -30,7 +30,8 @@ Our CI/CD system provides:
 - Linting (clippy)
 - Security auditing (cargo-audit)
 - Multi-platform testing (Ubuntu, macOS, Windows)
-- Cross-compilation testing (x86_64, ARM64, Windows, macOS)
+- Cross-compilation testing (x86_64, ARM64, Windows)
+- Native macOS compilation
 
 ### 2. GPU Hardware Tests (`gpu-testing.yml`)
 

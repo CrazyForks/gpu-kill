@@ -9,12 +9,7 @@ pub const GIT_COMMIT: &str = "unknown";
 
 /// Get formatted version string
 pub fn get_version_string() -> String {
-    format!(
-        "gpukill {} ({} {})",
-        VERSION,
-        BUILD_TARGET,
-        BUILD_DATE
-    )
+    format!("gpukill {} ({} {})", VERSION, BUILD_TARGET, BUILD_DATE)
 }
 
 /// Get detailed version information

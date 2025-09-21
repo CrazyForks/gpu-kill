@@ -58,9 +58,9 @@ pub struct NvmlApi {
 impl NvmlApi {
     /// Initialize NVML API
     pub fn new() -> Result<Self> {
-        let nvml = Nvml::init()
-            .map_err(map_nvml_error)
-            .context("Failed to initialize NVML. Ensure NVIDIA drivers are installed and GPU is accessible.")?;
+        let nvml = Nvml::init().map_err(map_nvml_error).context(
+            "Failed to initialize NVML. Ensure NVIDIA drivers are installed and GPU is accessible.",
+        )?;
 
         Ok(Self { nvml })
     }
@@ -75,15 +75,19 @@ impl NvmlApi {
 
     /// Get basic GPU information
     pub fn get_gpu_info(&self, index: u32) -> Result<GpuInfo> {
-        let device = self.nvml.device_by_index(index)
+        let device = self
+            .nvml
+            .device_by_index(index)
             .map_err(map_nvml_error)
             .with_context(|| format!("Failed to get device at index {}", index))?;
 
-        let name = device.name()
+        let name = device
+            .name()
             .map_err(map_nvml_error)
             .context("Failed to get device name")?;
 
-        let mem_info = device.memory_info()
+        let mem_info = device
+            .memory_info()
             .map_err(map_nvml_error)
             .context("Failed to get memory info")?;
 
@@ -96,47 +100,54 @@ impl NvmlApi {
 
     /// Get detailed GPU snapshot
     pub fn get_gpu_snapshot(&self, index: u32) -> Result<GpuSnapshot> {
-        let device = self.nvml.device_by_index(index)
+        let device = self
+            .nvml
+            .device_by_index(index)
             .map_err(map_nvml_error)
             .with_context(|| format!("Failed to get device at index {}", index))?;
 
-        let name = device.name()
+        let name = device
+            .name()
             .map_err(map_nvml_error)
             .context("Failed to get device name")?;
 
-        let mem_info = device.memory_info()
+        let mem_info = device
+            .memory_info()
             .map_err(map_nvml_error)
             .context("Failed to get memory info")?;
 
-        let utilization = device.utilization_rates()
+        let utilization = device
+            .utilization_rates()
             .map_err(map_nvml_error)
             .context("Failed to get utilization rates")?;
 
-        let temperature = device.temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
+        let temperature = device
+            .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
             .map_err(map_nvml_error)
             .context("Failed to get temperature")?;
 
-        let power_usage = device.power_usage()
+        let power_usage = device
+            .power_usage()
             .map_err(map_nvml_error)
             .context("Failed to get power usage")?;
 
         let ecc_volatile = None; // ECC errors not available in this version
 
-        let processes = device.running_compute_processes()
+        let processes = device
+            .running_compute_processes()
             .map_err(map_nvml_error)
             .context("Failed to get running processes")?;
 
         let pids: Vec<u32> = processes.iter().map(|p| p.pid).collect();
-        let top_proc = processes.first()
-            .map(|p| GpuProc {
-                gpu_index: index as u16,
-                pid: p.pid,
-                user: "unknown".to_string(), // Will be filled by process info
-                proc_name: "unknown".to_string(), // Will be filled by process info
-                used_mem_mb: 0, // Will be filled by process info
-                start_time: "unknown".to_string(), // Will be filled by process info
-                container: None,
-            });
+        let top_proc = processes.first().map(|p| GpuProc {
+            gpu_index: index as u16,
+            pid: p.pid,
+            user: "unknown".to_string(), // Will be filled by process info
+            proc_name: "unknown".to_string(), // Will be filled by process info
+            used_mem_mb: 0,              // Will be filled by process info
+            start_time: "unknown".to_string(), // Will be filled by process info
+            container: None,
+        });
 
         Ok(GpuSnapshot {
             gpu_index: index as u16,
@@ -172,11 +183,14 @@ impl NvmlApi {
         let mut all_processes = Vec::new();
 
         for i in 0..count {
-            let device = self.nvml.device_by_index(i)
+            let device = self
+                .nvml
+                .device_by_index(i)
                 .map_err(map_nvml_error)
                 .with_context(|| format!("Failed to get device at index {}", i))?;
 
-            let processes = device.running_compute_processes()
+            let processes = device
+                .running_compute_processes()
                 .map_err(map_nvml_error)
                 .with_context(|| format!("Failed to get processes for GPU {}", i))?;
 
@@ -186,7 +200,7 @@ impl NvmlApi {
                     pid: process.pid,
                     user: "unknown".to_string(), // Will be filled by process info
                     proc_name: "unknown".to_string(), // Will be filled by process info
-                    used_mem_mb: 0, // Will be filled by process info
+                    used_mem_mb: 0,              // Will be filled by process info
                     start_time: "unknown".to_string(), // Will be filled by process info
                     container: None,
                 });
@@ -201,11 +215,14 @@ impl NvmlApi {
         let count = self.device_count()?;
 
         for i in 0..count {
-            let device = self.nvml.device_by_index(i)
+            let device = self
+                .nvml
+                .device_by_index(i)
                 .map_err(map_nvml_error)
                 .with_context(|| format!("Failed to get device at index {}", i))?;
 
-            let processes = device.running_compute_processes()
+            let processes = device
+                .running_compute_processes()
                 .map_err(map_nvml_error)
                 .with_context(|| format!("Failed to get processes for GPU {}", i))?;
 
@@ -219,7 +236,9 @@ impl NvmlApi {
 
     /// Reset a specific GPU
     pub fn reset_gpu(&self, index: u32) -> Result<()> {
-        let _device = self.nvml.device_by_index(index)
+        let _device = self
+            .nvml
+            .device_by_index(index)
             .map_err(map_nvml_error)
             .with_context(|| format!("Failed to get device at index {}", index))?;
 

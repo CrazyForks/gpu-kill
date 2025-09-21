@@ -355,11 +355,14 @@ impl RogueConfigManager {
     fn load_config(path: &PathBuf) -> Result<RogueConfig> {
         let content = fs::read_to_string(path)
             .map_err(|e| anyhow::anyhow!("Failed to read config file: {}", e))?;
-        
+
         let config: RogueConfig = toml::from_str(&content)
             .map_err(|e| anyhow::anyhow!("Failed to parse config file: {}", e))?;
 
-        info!("Loaded rogue detection configuration from: {}", path.display());
+        info!(
+            "Loaded rogue detection configuration from: {}",
+            path.display()
+        );
         Ok(config)
     }
 
@@ -418,7 +421,10 @@ impl RogueConfigManager {
     /// Remove a custom pattern by name
     #[allow(dead_code)]
     pub fn remove_custom_pattern(&mut self, name: &str) -> Result<()> {
-        self.config.patterns.custom_patterns.retain(|p| p.name != name);
+        self.config
+            .patterns
+            .custom_patterns
+            .retain(|p| p.name != name);
         self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
         Self::save_config(&self.config_path, &self.config)?;
         Ok(())
@@ -454,14 +460,18 @@ impl RogueConfigManager {
 
     /// Remove a process from the whitelist
     pub fn remove_process_from_whitelist(&mut self, process: &str) -> Result<()> {
-        self.config.patterns.process_whitelist.retain(|p| p != process);
+        self.config
+            .patterns
+            .process_whitelist
+            .retain(|p| p != process);
         self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
         Self::save_config(&self.config_path, &self.config)?;
         Ok(())
     }
 
     /// Update detection thresholds
-    pub fn update_thresholds(&mut self, 
+    pub fn update_thresholds(
+        &mut self,
         max_memory: Option<f32>,
         max_utilization: Option<f32>,
         max_duration: Option<f32>,
@@ -490,10 +500,24 @@ impl RogueConfigManager {
     pub fn toggle_detection_type(&mut self, detection_type: &str, enabled: bool) -> Result<()> {
         match detection_type {
             "crypto_miners" => self.config.detection.enabled_detections.crypto_miners = enabled,
-            "suspicious_processes" => self.config.detection.enabled_detections.suspicious_processes = enabled,
-            "resource_abusers" => self.config.detection.enabled_detections.resource_abusers = enabled,
-            "data_exfiltrators" => self.config.detection.enabled_detections.data_exfiltrators = enabled,
-            _ => return Err(anyhow::anyhow!("Unknown detection type: {}", detection_type)),
+            "suspicious_processes" => {
+                self.config
+                    .detection
+                    .enabled_detections
+                    .suspicious_processes = enabled
+            }
+            "resource_abusers" => {
+                self.config.detection.enabled_detections.resource_abusers = enabled
+            }
+            "data_exfiltrators" => {
+                self.config.detection.enabled_detections.data_exfiltrators = enabled
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unknown detection type: {}",
+                    detection_type
+                ))
+            }
         }
 
         self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
@@ -516,7 +540,7 @@ impl RogueConfigManager {
     pub fn import_from_json(&mut self, json: &str) -> Result<()> {
         let config: RogueConfig = serde_json::from_str(json)
             .map_err(|e| anyhow::anyhow!("Failed to import config from JSON: {}", e))?;
-        
+
         self.update_config(config)?;
         Ok(())
     }
@@ -539,6 +563,9 @@ mod tests {
         let config = RogueConfig::default();
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: RogueConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(config.detection.max_memory_usage_gb, deserialized.detection.max_memory_usage_gb);
+        assert_eq!(
+            config.detection.max_memory_usage_gb,
+            deserialized.detection.max_memory_usage_gb
+        );
     }
 }

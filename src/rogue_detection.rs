@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, info};
 
-use crate::audit::{AuditRecord, AuditManager};
+use crate::audit::{AuditManager, AuditRecord};
 use crate::nvml_api::GpuProc;
 
 /// Rogue detection result
@@ -132,7 +132,10 @@ impl RogueDetector {
     }
 
     /// Create a new rogue detector with configuration
-    pub fn with_config(audit_manager: AuditManager, config_manager: &crate::rogue_config::RogueConfigManager) -> Self {
+    pub fn with_config(
+        audit_manager: AuditManager,
+        config_manager: &crate::rogue_config::RogueConfigManager,
+    ) -> Self {
         Self {
             audit_manager,
             detection_rules: config_manager.to_detection_rules(),
@@ -151,7 +154,7 @@ impl RogueDetector {
     /// Analyze audit records for suspicious activity
     pub async fn detect_rogue_activity(&self, hours: u32) -> Result<RogueDetectionResult> {
         info!("Starting rogue activity detection for last {} hours", hours);
-        
+
         let audit_records = self.audit_manager.query_records(hours, None, None).await?;
         debug!("Analyzing {} audit records", audit_records.len());
 
@@ -218,13 +221,16 @@ impl RogueDetector {
     /// Group audit records by PID for analysis
     fn group_records_by_pid(&self, records: &[AuditRecord]) -> HashMap<u32, Vec<AuditRecord>> {
         let mut groups = HashMap::new();
-        
+
         for record in records {
             if let Some(pid) = record.pid {
-                groups.entry(pid).or_insert_with(Vec::new).push(record.clone());
+                groups
+                    .entry(pid)
+                    .or_insert_with(Vec::new)
+                    .push(record.clone());
             }
         }
-        
+
         groups
     }
 
@@ -287,7 +293,10 @@ impl RogueDetector {
                 gpu_index: record.gpu_index,
                 pid: record.pid.unwrap_or(0),
                 user: record.user.clone().unwrap_or_else(|| "unknown".to_string()),
-                proc_name: record.process_name.clone().unwrap_or_else(|| "unknown".to_string()),
+                proc_name: record
+                    .process_name
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
                 used_mem_mb: record.memory_used_mb,
                 start_time: "unknown".to_string(),
                 container: record.container.clone(),
@@ -351,7 +360,10 @@ impl RogueDetector {
                 gpu_index: record.gpu_index,
                 pid: record.pid.unwrap_or(0),
                 user: record.user.clone().unwrap_or_else(|| "unknown".to_string()),
-                proc_name: record.process_name.clone().unwrap_or_else(|| "unknown".to_string()),
+                proc_name: record
+                    .process_name
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
                 used_mem_mb: record.memory_used_mb,
                 start_time: "unknown".to_string(),
                 container: record.container.clone(),
@@ -408,7 +420,10 @@ impl RogueDetector {
                 gpu_index: record.gpu_index,
                 pid: record.pid.unwrap_or(0),
                 user: record.user.clone().unwrap_or_else(|| "unknown".to_string()),
-                proc_name: record.process_name.clone().unwrap_or_else(|| "unknown".to_string()),
+                proc_name: record
+                    .process_name
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
                 used_mem_mb: record.memory_used_mb,
                 start_time: "unknown".to_string(),
                 container: record.container.clone(),
@@ -438,10 +453,8 @@ impl RogueDetector {
             return None;
         }
 
-        let total_util: f32 = records.iter()
-            .map(|r| r.utilization_pct)
-            .sum();
-        
+        let total_util: f32 = records.iter().map(|r| r.utilization_pct).sum();
+
         Some(total_util / records.len() as f32)
     }
 
@@ -451,10 +464,11 @@ impl RogueDetector {
             return None;
         }
 
-        let total_memory: f32 = records.iter()
+        let total_memory: f32 = records
+            .iter()
             .map(|r| r.memory_used_mb as f32 / 1024.0)
             .sum();
-        
+
         Some(total_memory / records.len() as f32)
     }
 
@@ -464,9 +478,7 @@ impl RogueDetector {
             return None;
         }
 
-        let timestamps: Vec<DateTime<Utc>> = records.iter()
-            .map(|r| r.timestamp)
-            .collect();
+        let timestamps: Vec<DateTime<Utc>> = records.iter().map(|r| r.timestamp).collect();
 
         if timestamps.len() < 2 {
             return None;
@@ -475,7 +487,7 @@ impl RogueDetector {
         let min_time = timestamps.iter().min()?;
         let max_time = timestamps.iter().max()?;
         let duration = (*max_time - *min_time).num_seconds() as f32 / 3600.0;
-        
+
         Some(duration)
     }
 
@@ -488,7 +500,7 @@ impl RogueDetector {
     /// Check if process name is unusual
     fn is_unusual_process_name(&self, name: &str) -> bool {
         let name_lower = name.to_lowercase();
-        
+
         // Check for random-looking names
         if name.len() > 20 && name.chars().filter(|c| c.is_ascii_digit()).count() > 5 {
             return true;
@@ -564,16 +576,22 @@ impl RogueDetector {
         let mut recommendations = Vec::new();
 
         if !miners.is_empty() {
-            recommendations.push("🚨 CRITICAL: Crypto miners detected! Consider immediate termination.".to_string());
-            recommendations.push("Review system security and check for unauthorized access.".to_string());
+            recommendations.push(
+                "🚨 CRITICAL: Crypto miners detected! Consider immediate termination.".to_string(),
+            );
+            recommendations
+                .push("Review system security and check for unauthorized access.".to_string());
         }
 
         if !suspicious.is_empty() {
-            recommendations.push("⚠️ Suspicious processes detected. Review and investigate.".to_string());
+            recommendations
+                .push("⚠️ Suspicious processes detected. Review and investigate.".to_string());
         }
 
         if !abusers.is_empty() {
-            recommendations.push("📊 Resource abuse detected. Consider implementing usage limits.".to_string());
+            recommendations.push(
+                "📊 Resource abuse detected. Consider implementing usage limits.".to_string(),
+            );
         }
 
         if recommendations.is_empty() {

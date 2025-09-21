@@ -8,25 +8,25 @@ use std::path::Path;
 pub struct Config {
     /// Default log level
     pub log_level: String,
-    
+
     /// Default output format
     pub output_format: String,
-    
+
     /// Default timeout for process termination
     pub default_timeout_secs: u16,
-    
+
     /// Whether to show detailed process information by default
     pub show_details: bool,
-    
+
     /// Watch mode refresh interval in seconds
     pub watch_interval_secs: u64,
-    
+
     /// Maximum number of processes to show in summary
     pub max_processes_summary: usize,
-    
+
     /// Table width limit
     pub table_width: usize,
-    
+
     /// Whether to use colors in output
     pub use_colors: bool,
 }
@@ -69,7 +69,7 @@ impl ConfigManager {
     /// Load configuration from file
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let config_path = path.as_ref();
-        
+
         if !config_path.exists() {
             tracing::debug!("Config file not found at {:?}, using defaults", config_path);
             return Ok(Self::new());
@@ -140,8 +140,8 @@ impl ConfigManager {
     /// Save configuration to file
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let config_path = path.as_ref();
-        let content = toml::to_string_pretty(&self.config)
-            .context("Failed to serialize configuration")?;
+        let content =
+            toml::to_string_pretty(&self.config).context("Failed to serialize configuration")?;
 
         fs::write(config_path, content)
             .with_context(|| format!("Failed to write config file: {:?}", config_path))?;
@@ -154,7 +154,7 @@ impl ConfigManager {
     pub fn default_config_path() -> Result<std::path::PathBuf> {
         let home_dir = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
-        
+
         Ok(home_dir.join(".config").join("gpukill").join("config.toml"))
     }
 
@@ -167,7 +167,7 @@ impl ConfigManager {
     /// Create default configuration file
     pub fn create_default_config() -> Result<()> {
         let config_path = Self::default_config_path()?;
-        
+
         // Create directory if it doesn't exist
         if let Some(parent) = config_path.parent() {
             fs::create_dir_all(parent)
@@ -176,7 +176,7 @@ impl ConfigManager {
 
         let config_manager = Self::new();
         config_manager.save_to_file(config_path)?;
-        
+
         Ok(())
     }
 }
@@ -217,7 +217,7 @@ mod tests {
         let config = Config::default();
         let toml_str = toml::to_string(&config).unwrap();
         let deserialized: Config = toml::from_str(&toml_str).unwrap();
-        
+
         assert_eq!(config.log_level, deserialized.log_level);
         assert_eq!(config.output_format, deserialized.output_format);
     }
@@ -226,10 +226,10 @@ mod tests {
     fn test_config_file_loading() {
         let config = Config::default();
         let toml_str = toml::to_string_pretty(&config).unwrap();
-        
+
         let temp_file = NamedTempFile::new().unwrap();
         std::fs::write(temp_file.path(), toml_str).unwrap();
-        
+
         let loaded_config = ConfigManager::load_from_file(temp_file.path()).unwrap();
         assert_eq!(loaded_config.config().log_level, config.log_level);
     }

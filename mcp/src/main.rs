@@ -2,7 +2,7 @@
 
 use gpukill_mcp::GpuKillMCPServer;
 use std::env;
-use tracing::{info, error};
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Create and start the MCP server
     let server = GpuKillMCPServer::new().await?;
-    
+
     info!("GPU Kill MCP Server initialized successfully");
     info!("Available resources:");
     info!("  - gpu://list - Current GPU status and utilization");
@@ -29,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
     info!("  - gpu://audit - Historical GPU usage data");
     info!("  - gpu://policies - Current Guard Mode policies");
     info!("  - gpu://rogue-detection - Security scan results");
-    
+
     info!("Available tools:");
     info!("  - kill_gpu_process - Kill a GPU process by PID");
     info!("  - reset_gpu - Reset a GPU by ID");

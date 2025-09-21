@@ -4,11 +4,7 @@ use crate::util::{format_memory_mb_to_gib, truncate_string};
 // serde_json is used via serde_json::to_string_pretty
 use std::io::{self, Write};
 use tabled::{
-    settings::{
-        object::Rows,
-        style::Style,
-        Alignment, Modify, Padding, Width,
-    },
+    settings::{object::Rows, style::Style, Alignment, Modify, Padding, Width},
     Table, Tabled,
 };
 
@@ -26,7 +22,11 @@ impl Renderer {
     }
 
     /// Render a complete snapshot
-    pub fn render_snapshot(&self, snapshot: &Snapshot, details: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn render_snapshot(
+        &self,
+        snapshot: &Snapshot,
+        details: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         match self.output_format {
             OutputFormat::Table => self.render_table(snapshot, details),
             OutputFormat::Json => self.render_json(snapshot),
@@ -34,7 +34,11 @@ impl Renderer {
     }
 
     /// Render as a table
-    fn render_table(&self, snapshot: &Snapshot, details: bool) -> Result<(), Box<dyn std::error::Error>> {
+    fn render_table(
+        &self,
+        snapshot: &Snapshot,
+        details: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if details {
             self.render_detailed_table(snapshot)
         } else {
@@ -52,7 +56,8 @@ impl Renderer {
             let mem_usage = format!("{}/{} GiB", mem_used_gib, mem_total_gib);
 
             let top_proc_info = if let Some(ref top_proc) = gpu.top_proc {
-                format!("{}:{}:{}MB", 
+                format!(
+                    "{}:{}:{}MB",
                     truncate_string(&top_proc.proc_name, 15),
                     top_proc.pid,
                     top_proc.used_mem_mb
@@ -61,7 +66,8 @@ impl Renderer {
                 "-".to_string()
             };
 
-            let ecc_info = gpu.ecc_volatile
+            let ecc_info = gpu
+                .ecc_volatile
                 .map(|e| e.to_string())
                 .unwrap_or_else(|| "-".to_string());
 
@@ -100,7 +106,8 @@ impl Renderer {
             let mut table_data = Vec::new();
 
             for proc in &snapshot.procs {
-                let container_info = proc.container
+                let container_info = proc
+                    .container
                     .as_ref()
                     .map(|c| truncate_string(c, 15))
                     .unwrap_or_else(|| "-".to_string());
@@ -138,7 +145,10 @@ impl Renderer {
     }
 
     /// Render JSON snapshot for watch mode (newline-delimited)
-    pub fn render_json_snapshot(&self, snapshot: &Snapshot) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn render_json_snapshot(
+        &self,
+        snapshot: &Snapshot,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let json = serde_json::to_string(snapshot)?;
         println!("{}", json);
         io::stdout().flush()?;
@@ -271,7 +281,7 @@ mod tests {
     fn test_json_rendering() {
         let renderer = Renderer::new(OutputFormat::Json);
         let snapshot = create_test_snapshot();
-        
+
         // This should not panic
         let result = renderer.render_json(&snapshot);
         assert!(result.is_ok());
@@ -281,7 +291,7 @@ mod tests {
     fn test_table_rendering() {
         let renderer = Renderer::new(OutputFormat::Table);
         let snapshot = create_test_snapshot();
-        
+
         // This should not panic
         let result = renderer.render_table(&snapshot, false);
         assert!(result.is_ok());
@@ -291,7 +301,7 @@ mod tests {
     fn test_detailed_table_rendering() {
         let renderer = Renderer::new(OutputFormat::Table);
         let snapshot = create_test_snapshot();
-        
+
         // This should not panic
         let result = renderer.render_table(&snapshot, true);
         assert!(result.is_ok());

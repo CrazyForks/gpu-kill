@@ -1,6 +1,6 @@
 use crate::args::{Cli, OutputFormat, VendorFilter};
 use crate::config::get_config;
-use crate::coordinator::{CoordinatorState, create_router};
+use crate::coordinator::{create_router, CoordinatorState};
 use crate::nvml_api::{NvmlApi, Snapshot};
 use crate::proc::ProcessManager;
 use crate::process_mgmt::EnhancedProcessManager;
@@ -39,17 +39,16 @@ fn main() -> Result<()> {
     init_logging(&cli.log_level.to_string())?;
 
     // Load configuration
-    let config_manager = get_config(cli.config.clone())
-        .context("Failed to load configuration")?;
+    let config_manager = get_config(cli.config.clone()).context("Failed to load configuration")?;
 
     info!("Starting gpukill {}", get_version_string());
 
-        // Execute the requested operation
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| anyhow::anyhow!("Failed to create tokio runtime: {}", e))?;
-        match rt.block_on(execute_operation(cli, config_manager)) {
+    // Execute the requested operation
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to create tokio runtime: {}", e))?;
+    match rt.block_on(execute_operation(cli, config_manager)) {
         Ok(()) => {
             info!("Operation completed successfully");
             Ok(())
@@ -57,7 +56,7 @@ fn main() -> Result<()> {
         Err(e) => {
             error!("Operation failed: {}", e);
             render_error(&e.to_string());
-            
+
             // Set appropriate exit codes
             let exit_code = if e.to_string().contains("NVML") {
                 2 // NVML initialization failure
@@ -65,7 +64,9 @@ fn main() -> Result<()> {
                 3 // Invalid arguments
             } else if e.to_string().contains("permission") || e.to_string().contains("Permission") {
                 4 // Permission errors
-            } else if e.to_string().contains("not supported") || e.to_string().contains("unsupported") {
+            } else if e.to_string().contains("not supported")
+                || e.to_string().contains("unsupported")
+            {
                 5 // Operation not supported
             } else {
                 1 // General error
@@ -99,28 +100,28 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
     }
 
     // Initialize GPU manager for local operations
-    let gpu_manager = GpuManager::initialize()
-        .context("Failed to initialize GPU manager")?;
+    let gpu_manager = GpuManager::initialize().context("Failed to initialize GPU manager")?;
 
     if cli.list {
         execute_list_operation(
-            cli.details, 
-            cli.watch, 
-            cli.output, 
+            cli.details,
+            cli.watch,
+            cli.output,
             cli.vendor,
             cli.containers,
             gpu_manager,
-            config_manager
-        ).await
+            config_manager,
+        )
+        .await
     } else if cli.kill {
         execute_kill_operation(
             cli.pid,
-            cli.timeout_secs, 
+            cli.timeout_secs,
             cli.force,
             cli.filter,
             cli.batch,
             gpu_manager,
-            config_manager
+            config_manager,
         )
     } else if cli.reset {
         execute_reset_operation(cli.gpu, cli.all, cli.force, gpu_manager, config_manager)
@@ -133,13 +134,10 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
             cli.rogue,
             &cli,
             cli.output.clone(),
-        ).await
+        )
+        .await
     } else if cli.server {
-        execute_server_operation(
-            cli.server_host,
-            cli.server_port,
-            gpu_manager,
-        ).await
+        execute_server_operation(cli.server_host, cli.server_port, gpu_manager).await
     } else if cli.guard {
         execute_guard_operation(&cli, gpu_manager).await
     } else if let Some(coordinator_url) = cli.register_node {
@@ -162,7 +160,15 @@ async fn execute_list_operation(
     let renderer = Renderer::new(output);
 
     if watch {
-        execute_watch_mode(details, containers, vendor_filter, renderer, gpu_manager, config_manager).await
+        execute_watch_mode(
+            details,
+            containers,
+            vendor_filter,
+            renderer,
+            gpu_manager,
+            config_manager,
+        )
+        .await
     } else {
         execute_single_list(details, containers, &vendor_filter, &renderer, &gpu_manager).await
     }
@@ -178,17 +184,17 @@ async fn execute_single_list(
 ) -> Result<()> {
     // Get all GPU snapshots
     let mut gpus = gpu_manager.get_all_snapshots()?;
-    
+
     // Filter by vendor if specified
     if let Some(filter) = vendor_filter {
         if let Some(target_vendor) = filter.to_gpu_vendor() {
             gpus.retain(|gpu| gpu.vendor == target_vendor);
         }
     }
-    
+
     // Get all processes
     let mut procs = gpu_manager.get_all_processes()?;
-    
+
     // Enrich with container information if requested
     if containers {
         // Create a temporary process manager for enrichment
@@ -201,7 +207,7 @@ async fn execute_single_list(
         let mut enhanced_manager = EnhancedProcessManager::new(proc_manager);
         procs = enhanced_manager.enrich_with_containers(procs)?;
     }
-    
+
     // Create snapshot for rendering
     let snapshot = Snapshot {
         host: crate::util::get_hostname(),
@@ -213,23 +219,26 @@ async fn execute_single_list(
     // Log to audit database (async)
     // Now that execute_single_list is async, we can directly log to audit
     match crate::audit::AuditManager::new().await {
-        Ok(audit_manager) => {
-            match audit_manager.log_snapshot(&gpus, &procs).await {
-                Ok(()) => {
-                    tracing::debug!("Successfully logged audit snapshot with {} GPUs and {} processes", 
-                        gpus.len(), procs.len());
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to log audit snapshot: {}", e);
-                }
+        Ok(audit_manager) => match audit_manager.log_snapshot(&gpus, &procs).await {
+            Ok(()) => {
+                tracing::debug!(
+                    "Successfully logged audit snapshot with {} GPUs and {} processes",
+                    gpus.len(),
+                    procs.len()
+                );
             }
-        }
+            Err(e) => {
+                tracing::warn!("Failed to log audit snapshot: {}", e);
+            }
+        },
         Err(e) => {
             tracing::warn!("Failed to initialize audit manager: {}", e);
         }
     }
 
-    renderer.render_snapshot(&snapshot, details).map_err(|e| anyhow::anyhow!("Render error: {}", e))?;
+    renderer
+        .render_snapshot(&snapshot, details)
+        .map_err(|e| anyhow::anyhow!("Render error: {}", e))?;
     Ok(())
 }
 
@@ -243,12 +252,16 @@ async fn execute_watch_mode(
     config_manager: crate::config::ConfigManager,
 ) -> Result<()> {
     let _interval = Duration::from_secs(config_manager.config().watch_interval_secs);
-    
-    info!("Starting watch mode (refresh every {}s). Press Ctrl-C to stop.", 
-          config_manager.config().watch_interval_secs);
+
+    info!(
+        "Starting watch mode (refresh every {}s). Press Ctrl-C to stop.",
+        config_manager.config().watch_interval_secs
+    );
 
     loop {
-        match execute_single_list(details, containers, &vendor_filter, &renderer, &gpu_manager).await {
+        match execute_single_list(details, containers, &vendor_filter, &renderer, &gpu_manager)
+            .await
+        {
             Ok(()) => {
                 if matches!(renderer.get_output_format(), OutputFormat::Table) {
                     renderer.clear_screen();
@@ -259,7 +272,10 @@ async fn execute_watch_mode(
             }
         }
 
-        tokio::time::sleep(tokio::time::Duration::from_secs(config_manager.config().watch_interval_secs)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(
+            config_manager.config().watch_interval_secs,
+        ))
+        .await;
     }
 }
 
@@ -274,18 +290,23 @@ fn execute_kill_operation(
     _config_manager: crate::config::ConfigManager,
 ) -> Result<()> {
     // Initialize process manager for enhanced operations
-    let nvml_api = NvmlApi::new()
-        .context("Failed to initialize NVML. Ensure NVIDIA drivers are installed and GPU is accessible.")?;
+    let nvml_api = NvmlApi::new().context(
+        "Failed to initialize NVML. Ensure NVIDIA drivers are installed and GPU is accessible.",
+    )?;
     let proc_manager = ProcessManager::new(nvml_api);
     let mut enhanced_manager = EnhancedProcessManager::new(proc_manager);
 
     if let Some(filter_pattern) = filter {
         // Batch kill based on filter
         let all_processes = gpu_manager.get_all_processes()?;
-        let filtered_processes = enhanced_manager.filter_processes_by_name(&all_processes, &filter_pattern)?;
-        
+        let filtered_processes =
+            enhanced_manager.filter_processes_by_name(&all_processes, &filter_pattern)?;
+
         if filtered_processes.is_empty() {
-            render_warning(&format!("No processes found matching pattern: {}", filter_pattern));
+            render_warning(&format!(
+                "No processes found matching pattern: {}",
+                filter_pattern
+            ));
             return Ok(());
         }
 
@@ -296,34 +317,49 @@ fn execute_kill_operation(
         ));
 
         if batch {
-            let killed_pids = enhanced_manager.batch_kill_processes(&filtered_processes, timeout_secs, force)?;
-            render_success(&format!("Successfully killed {} processes: {:?}", killed_pids.len(), killed_pids));
+            let killed_pids =
+                enhanced_manager.batch_kill_processes(&filtered_processes, timeout_secs, force)?;
+            render_success(&format!(
+                "Successfully killed {} processes: {:?}",
+                killed_pids.len(),
+                killed_pids
+            ));
         } else {
             // Show processes and ask for confirmation (for now, just show them)
             for proc in &filtered_processes {
-                render_info(&format!("  PID {}: {} ({}) - {} MB", 
-                    proc.pid, proc.proc_name, proc.user, proc.used_mem_mb));
+                render_info(&format!(
+                    "  PID {}: {} ({}) - {} MB",
+                    proc.pid, proc.proc_name, proc.user, proc.used_mem_mb
+                ));
             }
             render_warning("Use --batch flag to actually kill these processes");
         }
     } else if let Some(target_pid) = pid {
         // Single process kill
         let check_gpu_usage = !force;
-        enhanced_manager.process_manager.validate_process(target_pid, check_gpu_usage)?;
+        enhanced_manager
+            .process_manager
+            .validate_process(target_pid, check_gpu_usage)?;
 
         // Get process info for display
-        let process_info = enhanced_manager.process_manager.get_process_info(target_pid)?;
+        let process_info = enhanced_manager
+            .process_manager
+            .get_process_info(target_pid)?;
         render_info(&format!(
             "Terminating process {} ({}: {})",
             target_pid, process_info.user, process_info.name
         ));
 
         // Perform graceful kill
-        enhanced_manager.process_manager.graceful_kill(target_pid, timeout_secs, force)?;
+        enhanced_manager
+            .process_manager
+            .graceful_kill(target_pid, timeout_secs, force)?;
 
         render_success(&format!("Process {} terminated successfully", target_pid));
     } else {
-        return Err(anyhow::anyhow!("Either --pid or --filter must be specified"));
+        return Err(anyhow::anyhow!(
+            "Either --pid or --filter must be specified"
+        ));
     }
 
     Ok(())
@@ -347,12 +383,9 @@ fn execute_reset_operation(
 }
 
 /// Execute reset for all GPUs
-fn execute_reset_all_gpus(
-    gpu_manager: &GpuManager,
-    force: bool,
-) -> Result<()> {
+fn execute_reset_all_gpus(gpu_manager: &GpuManager, force: bool) -> Result<()> {
     let device_count = gpu_manager.total_device_count()?;
-    
+
     if device_count == 0 {
         return Err(anyhow::anyhow!("No GPUs found"));
     }
@@ -362,12 +395,14 @@ fn execute_reset_all_gpus(
     // Check for active processes if not forcing
     if !force {
         let active_processes = gpu_manager.get_all_processes()?;
-        
+
         if !active_processes.is_empty() {
             render_warning("Active GPU processes found:");
             for proc in &active_processes {
-                render_warning(&format!("  GPU {}: PID {} ({})", 
-                    proc.gpu_index, proc.pid, proc.proc_name));
+                render_warning(&format!(
+                    "  GPU {}: PID {} ({})",
+                    proc.gpu_index, proc.pid, proc.proc_name
+                ));
             }
             return Err(anyhow::anyhow!(
                 "Cannot reset GPUs with active processes. Use --force to override."
@@ -391,13 +426,9 @@ fn execute_reset_all_gpus(
 }
 
 /// Execute reset for a single GPU
-fn execute_reset_single_gpu(
-    gpu_manager: &GpuManager,
-    gpu_id: u16,
-    force: bool,
-) -> Result<()> {
+fn execute_reset_single_gpu(gpu_manager: &GpuManager, gpu_id: u16, force: bool) -> Result<()> {
     let device_count = gpu_manager.total_device_count()?;
-    
+
     if gpu_id as u32 >= device_count {
         return Err(anyhow::anyhow!(
             "GPU {} not found. Available GPUs: 0-{}",
@@ -415,7 +446,7 @@ fn execute_reset_single_gpu(
             .iter()
             .filter(|p| p.gpu_index == gpu_id)
             .collect();
-        
+
         if !gpu_processes.is_empty() {
             render_warning(&format!("Active processes found on GPU {}:", gpu_id));
             for proc in &gpu_processes {
@@ -449,112 +480,165 @@ async fn execute_audit_operation(
     use crate::render::{render_info, render_warning};
 
     // Initialize audit manager
-    let audit_manager = AuditManager::new().await
+    let audit_manager = AuditManager::new()
+        .await
         .context("Failed to initialize audit manager")?;
 
     // Handle configuration management
-    if cli.rogue_config || 
-       cli.rogue_memory_threshold.is_some() || 
-       cli.rogue_utilization_threshold.is_some() || 
-       cli.rogue_duration_threshold.is_some() || 
-       cli.rogue_confidence_threshold.is_some() ||
-       cli.rogue_whitelist_process.is_some() ||
-       cli.rogue_unwhitelist_process.is_some() ||
-       cli.rogue_whitelist_user.is_some() ||
-       cli.rogue_unwhitelist_user.is_some() ||
-       cli.rogue_export_config ||
-       cli.rogue_import_config.is_some() {
-        
+    if cli.rogue_config
+        || cli.rogue_memory_threshold.is_some()
+        || cli.rogue_utilization_threshold.is_some()
+        || cli.rogue_duration_threshold.is_some()
+        || cli.rogue_confidence_threshold.is_some()
+        || cli.rogue_whitelist_process.is_some()
+        || cli.rogue_unwhitelist_process.is_some()
+        || cli.rogue_whitelist_user.is_some()
+        || cli.rogue_unwhitelist_user.is_some()
+        || cli.rogue_export_config
+        || cli.rogue_import_config.is_some()
+    {
         use crate::rogue_config::RogueConfigManager;
-        
-        let mut config_manager = RogueConfigManager::new()
-            .context("Failed to initialize rogue config manager")?;
+
+        let mut config_manager =
+            RogueConfigManager::new().context("Failed to initialize rogue config manager")?;
 
         // Show current configuration
         if cli.rogue_config {
             let config = config_manager.get_config();
             if output_format == crate::args::OutputFormat::Json {
-                let json = config_manager.export_to_json()
+                let json = config_manager
+                    .export_to_json()
                     .context("Failed to export config to JSON")?;
                 println!("{}", json);
             } else {
                 render_info("🕵️ Rogue Detection Configuration:");
-                render_info(&format!("  Memory Threshold: {:.1} GB", config.detection.max_memory_usage_gb));
-                render_info(&format!("  Utilization Threshold: {:.1}%", config.detection.max_utilization_pct));
-                render_info(&format!("  Duration Threshold: {:.1} hours", config.detection.max_duration_hours));
-                render_info(&format!("  Confidence Threshold: {:.2}", config.detection.min_confidence_threshold));
-                render_info(&format!("  Crypto Miners: {}", if config.detection.enabled_detections.crypto_miners { "enabled" } else { "disabled" }));
-                render_info(&format!("  Suspicious Processes: {}", if config.detection.enabled_detections.suspicious_processes { "enabled" } else { "disabled" }));
-                render_info(&format!("  Resource Abusers: {}", if config.detection.enabled_detections.resource_abusers { "enabled" } else { "disabled" }));
-                render_info(&format!("  Data Exfiltrators: {}", if config.detection.enabled_detections.data_exfiltrators { "enabled" } else { "disabled" }));
-                
+                render_info(&format!(
+                    "  Memory Threshold: {:.1} GB",
+                    config.detection.max_memory_usage_gb
+                ));
+                render_info(&format!(
+                    "  Utilization Threshold: {:.1}%",
+                    config.detection.max_utilization_pct
+                ));
+                render_info(&format!(
+                    "  Duration Threshold: {:.1} hours",
+                    config.detection.max_duration_hours
+                ));
+                render_info(&format!(
+                    "  Confidence Threshold: {:.2}",
+                    config.detection.min_confidence_threshold
+                ));
+                render_info(&format!(
+                    "  Crypto Miners: {}",
+                    if config.detection.enabled_detections.crypto_miners {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                ));
+                render_info(&format!(
+                    "  Suspicious Processes: {}",
+                    if config.detection.enabled_detections.suspicious_processes {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                ));
+                render_info(&format!(
+                    "  Resource Abusers: {}",
+                    if config.detection.enabled_detections.resource_abusers {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                ));
+                render_info(&format!(
+                    "  Data Exfiltrators: {}",
+                    if config.detection.enabled_detections.data_exfiltrators {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                ));
+
                 render_info("\n📋 Whitelisted Users:");
                 for user in &config.patterns.user_whitelist {
                     render_info(&format!("  - {}", user));
                 }
-                
+
                 render_info("\n📋 Whitelisted Processes:");
                 for process in &config.patterns.process_whitelist {
                     render_info(&format!("  - {}", process));
                 }
-                
-                render_info(&format!("\n📁 Config file: {}", config_manager.get_config_file_path().display()));
+
+                render_info(&format!(
+                    "\n📁 Config file: {}",
+                    config_manager.get_config_file_path().display()
+                ));
             }
         }
 
         // Update thresholds
-        if cli.rogue_memory_threshold.is_some() || 
-           cli.rogue_utilization_threshold.is_some() || 
-           cli.rogue_duration_threshold.is_some() || 
-           cli.rogue_confidence_threshold.is_some() {
-            
-            config_manager.update_thresholds(
-                cli.rogue_memory_threshold,
-                cli.rogue_utilization_threshold,
-                cli.rogue_duration_threshold,
-                cli.rogue_confidence_threshold,
-            ).context("Failed to update thresholds")?;
-            
+        if cli.rogue_memory_threshold.is_some()
+            || cli.rogue_utilization_threshold.is_some()
+            || cli.rogue_duration_threshold.is_some()
+            || cli.rogue_confidence_threshold.is_some()
+        {
+            config_manager
+                .update_thresholds(
+                    cli.rogue_memory_threshold,
+                    cli.rogue_utilization_threshold,
+                    cli.rogue_duration_threshold,
+                    cli.rogue_confidence_threshold,
+                )
+                .context("Failed to update thresholds")?;
+
             render_info("✅ Rogue detection thresholds updated successfully");
         }
 
         // Manage whitelists
         if let Some(process) = &cli.rogue_whitelist_process {
-            config_manager.add_process_to_whitelist(process.clone())
+            config_manager
+                .add_process_to_whitelist(process.clone())
                 .context("Failed to add process to whitelist")?;
             render_info(&format!("✅ Added '{}' to process whitelist", process));
         }
 
         if let Some(process) = &cli.rogue_unwhitelist_process {
-            config_manager.remove_process_from_whitelist(process)
+            config_manager
+                .remove_process_from_whitelist(process)
                 .context("Failed to remove process from whitelist")?;
             render_info(&format!("✅ Removed '{}' from process whitelist", process));
         }
 
         if let Some(user) = &cli.rogue_whitelist_user {
-            config_manager.add_user_to_whitelist(user.clone())
+            config_manager
+                .add_user_to_whitelist(user.clone())
                 .context("Failed to add user to whitelist")?;
             render_info(&format!("✅ Added '{}' to user whitelist", user));
         }
 
         if let Some(user) = &cli.rogue_unwhitelist_user {
-            config_manager.remove_user_from_whitelist(user)
+            config_manager
+                .remove_user_from_whitelist(user)
                 .context("Failed to remove user from whitelist")?;
             render_info(&format!("✅ Removed '{}' from user whitelist", user));
         }
 
         // Export configuration
         if cli.rogue_export_config {
-            let json = config_manager.export_to_json()
+            let json = config_manager
+                .export_to_json()
                 .context("Failed to export config to JSON")?;
             println!("{}", json);
         }
 
         // Import configuration
         if let Some(file_path) = &cli.rogue_import_config {
-            let content = std::fs::read_to_string(file_path)
-                .context("Failed to read import file")?;
-            config_manager.import_from_json(&content)
+            let content =
+                std::fs::read_to_string(file_path).context("Failed to read import file")?;
+            config_manager
+                .import_from_json(&content)
                 .context("Failed to import config from JSON")?;
             render_info(&format!("✅ Imported configuration from: {}", file_path));
         }
@@ -564,14 +648,16 @@ async fn execute_audit_operation(
 
     if rogue {
         // Perform rogue activity detection
-        use crate::rogue_detection::RogueDetector;
         use crate::rogue_config::RogueConfigManager;
-        
-        let config_manager = RogueConfigManager::new()
-            .context("Failed to initialize rogue config manager")?;
-        
+        use crate::rogue_detection::RogueDetector;
+
+        let config_manager =
+            RogueConfigManager::new().context("Failed to initialize rogue config manager")?;
+
         let detector = RogueDetector::with_config(audit_manager, &config_manager);
-        let result = detector.detect_rogue_activity(hours).await
+        let result = detector
+            .detect_rogue_activity(hours)
+            .await
             .context("Failed to perform rogue detection")?;
 
         if output_format == crate::args::OutputFormat::Json {
@@ -581,14 +667,25 @@ async fn execute_audit_operation(
             println!("{}", json);
         } else {
             // Table output
-            render_info(&format!("🕵️ Rogue Activity Detection Results (Last {} hours)", hours));
+            render_info(&format!(
+                "🕵️ Rogue Activity Detection Results (Last {} hours)",
+                hours
+            ));
             render_info(&format!("Overall Risk Score: {:.2}/1.0", result.risk_score));
-            
+
             if !result.crypto_miners.is_empty() {
-                render_warning(&format!("🚨 CRITICAL: {} crypto miners detected!", result.crypto_miners.len()));
+                render_warning(&format!(
+                    "🚨 CRITICAL: {} crypto miners detected!",
+                    result.crypto_miners.len()
+                ));
                 for (i, miner) in result.crypto_miners.iter().enumerate() {
-                    render_warning(&format!("  {}. PID {}: {} (confidence: {:.2})", 
-                        i + 1, miner.process.pid, miner.process.proc_name, miner.confidence));
+                    render_warning(&format!(
+                        "  {}. PID {}: {} (confidence: {:.2})",
+                        i + 1,
+                        miner.process.pid,
+                        miner.process.proc_name,
+                        miner.confidence
+                    ));
                     for indicator in &miner.mining_indicators {
                         render_info(&format!("     - {}", indicator));
                     }
@@ -596,7 +693,10 @@ async fn execute_audit_operation(
             }
 
             if !result.suspicious_processes.is_empty() {
-                render_warning(&format!("⚠️ {} suspicious processes detected!", result.suspicious_processes.len()));
+                render_warning(&format!(
+                    "⚠️ {} suspicious processes detected!",
+                    result.suspicious_processes.len()
+                ));
                 for (i, process) in result.suspicious_processes.iter().enumerate() {
                     let risk_emoji = match process.risk_level {
                         crate::rogue_detection::RiskLevel::Critical => "🚨",
@@ -604,8 +704,14 @@ async fn execute_audit_operation(
                         crate::rogue_detection::RiskLevel::Medium => "⚡",
                         crate::rogue_detection::RiskLevel::Low => "ℹ️",
                     };
-                    render_warning(&format!("  {}. {} PID {}: {} (confidence: {:.2})", 
-                        i + 1, risk_emoji, process.process.pid, process.process.proc_name, process.confidence));
+                    render_warning(&format!(
+                        "  {}. {} PID {}: {} (confidence: {:.2})",
+                        i + 1,
+                        risk_emoji,
+                        process.process.pid,
+                        process.process.proc_name,
+                        process.confidence
+                    ));
                     for reason in &process.reasons {
                         render_info(&format!("     - {}", reason));
                     }
@@ -613,20 +719,36 @@ async fn execute_audit_operation(
             }
 
             if !result.resource_abusers.is_empty() {
-                render_warning(&format!("📊 {} resource abusers detected!", result.resource_abusers.len()));
+                render_warning(&format!(
+                    "📊 {} resource abusers detected!",
+                    result.resource_abusers.len()
+                ));
                 for (i, abuser) in result.resource_abusers.iter().enumerate() {
                     let abuse_type = match abuser.abuse_type {
                         crate::rogue_detection::AbuseType::MemoryHog => "Memory Hog",
                         crate::rogue_detection::AbuseType::LongRunning => "Long Running",
-                        crate::rogue_detection::AbuseType::ExcessiveUtilization => "Excessive Utilization",
-                        crate::rogue_detection::AbuseType::UnauthorizedAccess => "Unauthorized Access",
+                        crate::rogue_detection::AbuseType::ExcessiveUtilization => {
+                            "Excessive Utilization"
+                        }
+                        crate::rogue_detection::AbuseType::UnauthorizedAccess => {
+                            "Unauthorized Access"
+                        }
                     };
-                    render_warning(&format!("  {}. PID {}: {} - {} (severity: {:.2})", 
-                        i + 1, abuser.process.pid, abuser.process.proc_name, abuse_type, abuser.severity));
+                    render_warning(&format!(
+                        "  {}. PID {}: {} - {} (severity: {:.2})",
+                        i + 1,
+                        abuser.process.pid,
+                        abuser.process.proc_name,
+                        abuse_type,
+                        abuser.severity
+                    ));
                 }
             }
 
-            if result.crypto_miners.is_empty() && result.suspicious_processes.is_empty() && result.resource_abusers.is_empty() {
+            if result.crypto_miners.is_empty()
+                && result.suspicious_processes.is_empty()
+                && result.resource_abusers.is_empty()
+            {
                 render_info("✅ No suspicious activity detected!");
             }
 
@@ -642,7 +764,9 @@ async fn execute_audit_operation(
 
     if summary {
         // Show audit summary
-        let summary = audit_manager.get_summary(hours).await
+        let summary = audit_manager
+            .get_summary(hours)
+            .await
             .context("Failed to get audit summary")?;
 
         render_info(&format!("GPU Usage Audit Summary (Last {} hours)", hours));
@@ -651,16 +775,26 @@ async fn execute_audit_operation(
         if !summary.top_users.is_empty() {
             render_info("\nTop Users by Memory Usage:");
             for (i, (user, count, memory_mb)) in summary.top_users.iter().enumerate() {
-                render_info(&format!("  {}. {}: {} records, {} MB total", 
-                    i + 1, user, count, memory_mb));
+                render_info(&format!(
+                    "  {}. {}: {} records, {} MB total",
+                    i + 1,
+                    user,
+                    count,
+                    memory_mb
+                ));
             }
         }
 
         if !summary.top_processes.is_empty() {
             render_info("\nTop Processes by Memory Usage:");
             for (i, (process, count, memory_mb)) in summary.top_processes.iter().enumerate() {
-                render_info(&format!("  {}. {}: {} records, {} MB total", 
-                    i + 1, process, count, memory_mb));
+                render_info(&format!(
+                    "  {}. {}: {} records, {} MB total",
+                    i + 1,
+                    process,
+                    count,
+                    memory_mb
+                ));
             }
         }
 
@@ -668,25 +802,29 @@ async fn execute_audit_operation(
         for (hour, avg_memory) in &summary.gpu_usage_by_hour {
             render_info(&format!("  Hour {}: {} MB average", hour, avg_memory));
         }
-
     } else {
         // Show detailed audit records
-        let records = audit_manager.query_records(
-            hours,
-            user_filter.as_deref(),
-            process_filter.as_deref(),
-        ).await
-        .context("Failed to query audit records")?;
+        let records = audit_manager
+            .query_records(hours, user_filter.as_deref(), process_filter.as_deref())
+            .await
+            .context("Failed to query audit records")?;
 
         if records.is_empty() {
-            render_warning(&format!("No audit records found for the last {} hours", hours));
+            render_warning(&format!(
+                "No audit records found for the last {} hours",
+                hours
+            ));
             if user_filter.is_some() || process_filter.is_some() {
                 render_info("Try removing filters to see all records");
             }
             return Ok(());
         }
 
-        render_info(&format!("Found {} audit records (Last {} hours)", records.len(), hours));
+        render_info(&format!(
+            "Found {} audit records (Last {} hours)",
+            records.len(),
+            hours
+        ));
 
         if output_format == crate::args::OutputFormat::Json {
             // JSON output
@@ -715,17 +853,24 @@ async fn execute_audit_operation(
                 container: String,
             }
 
-            let table_rows: Vec<AuditTableRow> = records.iter().map(|record| {
-                AuditTableRow {
+            let table_rows: Vec<AuditTableRow> = records
+                .iter()
+                .map(|record| AuditTableRow {
                     time: record.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
                     gpu: format!("{} ({})", record.gpu_index, record.gpu_name),
-                    pid: record.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string()),
+                    pid: record
+                        .pid
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
                     user: record.user.clone().unwrap_or_else(|| "-".to_string()),
-                    process: record.process_name.clone().unwrap_or_else(|| "-".to_string()),
+                    process: record
+                        .process_name
+                        .clone()
+                        .unwrap_or_else(|| "-".to_string()),
                     memory: record.memory_used_mb,
                     container: record.container.clone().unwrap_or_else(|| "-".to_string()),
-                }
-            }).collect();
+                })
+                .collect();
 
             let table = Table::new(table_rows);
             println!("{}", table);
@@ -735,13 +880,8 @@ async fn execute_audit_operation(
     Ok(())
 }
 
-
 /// Execute server operation
-async fn execute_server_operation(
-    host: String,
-    port: u16,
-    gpu_manager: GpuManager,
-) -> Result<()> {
+async fn execute_server_operation(host: String, port: u16, gpu_manager: GpuManager) -> Result<()> {
     use axum::serve;
     use std::net::SocketAddr;
 
@@ -749,18 +889,19 @@ async fn execute_server_operation(
 
     // Initialize coordinator state
     let state = CoordinatorState::new();
-    
+
     // Start background tasks for cluster management
     state.start_background_tasks();
 
     // Register this node as the coordinator
     let node_id = uuid::Uuid::new_v4().to_string();
     let hostname = crate::util::get_hostname();
-    
+
     // Get initial GPU information
     let gpu_snapshots = gpu_manager.get_all_snapshots()?;
     let gpu_processes = gpu_manager.get_all_processes()?;
-    let total_memory_gb = gpu_snapshots.iter()
+    let total_memory_gb = gpu_snapshots
+        .iter()
         .map(|gpu| gpu.mem_total_mb as f32 / 1024.0)
         .sum();
 
@@ -802,9 +943,10 @@ async fn execute_server_operation(
     info!("  GET  /api/cluster/contention - Get contention analysis");
     info!("  WS   /ws - WebSocket for real-time updates");
 
-    let listener = tokio::net::TcpListener::bind(&addr).await
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
         .context("Failed to bind to address")?;
-    
+
     serve(listener, app)
         .await
         .context("Failed to start server")?;
@@ -814,21 +956,18 @@ async fn execute_server_operation(
 
 /// Execute operation on remote host via SSH
 async fn execute_remote_operation(cli: Cli, remote_host: &str) -> Result<()> {
-    use crate::remote::{SshConfig, execute_remote_operation as remote_exec};
+    use crate::remote::{execute_remote_operation as remote_exec, SshConfig};
     use std::time::Duration;
 
     info!("Executing remote operation on {}", remote_host);
 
     // Build SSH configuration
-    let username = cli.ssh_user.unwrap_or_else(|| {
-        std::env::var("USER").unwrap_or_else(|_| "root".to_string())
-    });
+    let username = cli
+        .ssh_user
+        .unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "root".to_string()));
 
-    let mut ssh_config = SshConfig::new(
-        remote_host.to_string(),
-        cli.ssh_port,
-        username,
-    ).with_timeout(Duration::from_secs(cli.ssh_timeout as u64));
+    let mut ssh_config = SshConfig::new(remote_host.to_string(), cli.ssh_port, username)
+        .with_timeout(Duration::from_secs(cli.ssh_timeout as u64));
 
     // Add authentication options
     if let Some(key_path) = &cli.ssh_key {
@@ -900,7 +1039,9 @@ async fn execute_remote_operation(cli: Cli, remote_host: &str) -> Result<()> {
             remote_args.push("--audit-summary".to_string());
         }
     } else if cli.server {
-        return Err(anyhow::anyhow!("Server mode cannot be used with remote operations"));
+        return Err(anyhow::anyhow!(
+            "Server mode cannot be used with remote operations"
+        ));
     }
 
     // Add output format
@@ -927,108 +1068,164 @@ async fn execute_remote_operation(cli: Cli, remote_host: &str) -> Result<()> {
 }
 
 /// Execute Guard Mode operation
-async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::vendor::GpuManager) -> Result<()> {
+async fn execute_guard_operation(
+    cli: &crate::args::Cli,
+    _gpu_manager: crate::vendor::GpuManager,
+) -> Result<()> {
     use crate::guard_mode::GuardModeManager;
     use crate::render::render_info;
 
     // Initialize guard mode manager
-    let mut guard_manager = GuardModeManager::new()
-        .context("Failed to initialize Guard Mode manager")?;
+    let mut guard_manager =
+        GuardModeManager::new().context("Failed to initialize Guard Mode manager")?;
 
     // Handle configuration management
-    if cli.guard_config || 
-       cli.guard_enable || 
-       cli.guard_disable || 
-       cli.guard_dry_run || 
-       cli.guard_enforce ||
-       cli.guard_add_user.is_some() ||
-       cli.guard_remove_user.is_some() ||
-       cli.guard_memory_limit.is_some() ||
-       cli.guard_utilization_limit.is_some() ||
-       cli.guard_process_limit.is_some() ||
-       cli.guard_add_group.is_some() ||
-       cli.guard_remove_group.is_some() ||
-       cli.guard_add_gpu.is_some() ||
-       cli.guard_remove_gpu.is_some() ||
-       cli.guard_group_memory_limit.is_some() ||
-       cli.guard_group_utilization_limit.is_some() ||
-       cli.guard_group_process_limit.is_some() ||
-       cli.guard_gpu_memory_limit.is_some() ||
-       cli.guard_gpu_utilization_limit.is_some() ||
-       cli.guard_gpu_reserved_memory.is_some() ||
-       cli.guard_export_config ||
-       cli.guard_import_config.is_some() ||
-       cli.guard_test_policies ||
-       cli.guard_toggle_dry_run {
-        
+    if cli.guard_config
+        || cli.guard_enable
+        || cli.guard_disable
+        || cli.guard_dry_run
+        || cli.guard_enforce
+        || cli.guard_add_user.is_some()
+        || cli.guard_remove_user.is_some()
+        || cli.guard_memory_limit.is_some()
+        || cli.guard_utilization_limit.is_some()
+        || cli.guard_process_limit.is_some()
+        || cli.guard_add_group.is_some()
+        || cli.guard_remove_group.is_some()
+        || cli.guard_add_gpu.is_some()
+        || cli.guard_remove_gpu.is_some()
+        || cli.guard_group_memory_limit.is_some()
+        || cli.guard_group_utilization_limit.is_some()
+        || cli.guard_group_process_limit.is_some()
+        || cli.guard_gpu_memory_limit.is_some()
+        || cli.guard_gpu_utilization_limit.is_some()
+        || cli.guard_gpu_reserved_memory.is_some()
+        || cli.guard_export_config
+        || cli.guard_import_config.is_some()
+        || cli.guard_test_policies
+        || cli.guard_toggle_dry_run
+    {
         // Show current configuration
         if cli.guard_config {
             let config = guard_manager.get_config();
             render_info("🛡️ Guard Mode Configuration:");
             render_info(&format!("  Enabled: {}", config.global.enabled));
             render_info(&format!("  Dry Run: {}", config.global.dry_run));
-            render_info(&format!("  Default Memory Limit: {:.1} GB", config.global.default_memory_limit_gb));
-            render_info(&format!("  Default Utilization Limit: {:.1}%", config.global.default_utilization_limit_pct));
-            render_info(&format!("  Default Duration Limit: {:.1} hours", config.global.default_duration_limit_hours));
-            render_info(&format!("  Check Interval: {} seconds", config.global.check_interval_seconds));
-            
-            render_info(&format!("  Soft Enforcement: {}", config.enforcement.soft_enforcement));
-            render_info(&format!("  Hard Enforcement: {}", config.enforcement.hard_enforcement));
-            render_info(&format!("  Grace Period: {} seconds", config.enforcement.grace_period_seconds));
-            
+            render_info(&format!(
+                "  Default Memory Limit: {:.1} GB",
+                config.global.default_memory_limit_gb
+            ));
+            render_info(&format!(
+                "  Default Utilization Limit: {:.1}%",
+                config.global.default_utilization_limit_pct
+            ));
+            render_info(&format!(
+                "  Default Duration Limit: {:.1} hours",
+                config.global.default_duration_limit_hours
+            ));
+            render_info(&format!(
+                "  Check Interval: {} seconds",
+                config.global.check_interval_seconds
+            ));
+
+            render_info(&format!(
+                "  Soft Enforcement: {}",
+                config.enforcement.soft_enforcement
+            ));
+            render_info(&format!(
+                "  Hard Enforcement: {}",
+                config.enforcement.hard_enforcement
+            ));
+            render_info(&format!(
+                "  Grace Period: {} seconds",
+                config.enforcement.grace_period_seconds
+            ));
+
             render_info("\n👥 User Policies:");
             for (username, policy) in &config.user_policies {
-                render_info(&format!("  - {}: {:.1}GB memory, {:.1}% util, {} processes", 
-                    username, policy.memory_limit_gb, policy.utilization_limit_pct, policy.max_concurrent_processes));
+                render_info(&format!(
+                    "  - {}: {:.1}GB memory, {:.1}% util, {} processes",
+                    username,
+                    policy.memory_limit_gb,
+                    policy.utilization_limit_pct,
+                    policy.max_concurrent_processes
+                ));
             }
-            
+
             render_info("\n👥 Group Policies:");
             for (group_name, policy) in &config.group_policies {
                 let members_info = if !policy.members.is_empty() {
-                    format!(", {} members: {}", policy.members.len(), policy.members.join(", "))
+                    format!(
+                        ", {} members: {}",
+                        policy.members.len(),
+                        policy.members.join(", ")
+                    )
                 } else {
                     "".to_string()
                 };
-                render_info(&format!("  - {}: {:.1}GB memory, {:.1}% util, {} processes{}", 
-                    group_name, policy.total_memory_limit_gb, policy.total_utilization_limit_pct, policy.max_concurrent_processes, members_info));
+                render_info(&format!(
+                    "  - {}: {:.1}GB memory, {:.1}% util, {} processes{}",
+                    group_name,
+                    policy.total_memory_limit_gb,
+                    policy.total_utilization_limit_pct,
+                    policy.max_concurrent_processes,
+                    members_info
+                ));
             }
-            
+
             render_info("\n🖥️ GPU Policies:");
             for (gpu_index, policy) in &config.gpu_policies {
                 let users_info = if !policy.allowed_users.is_empty() {
-                    format!(", {} allowed users: {}", policy.allowed_users.len(), policy.allowed_users.join(", "))
+                    format!(
+                        ", {} allowed users: {}",
+                        policy.allowed_users.len(),
+                        policy.allowed_users.join(", ")
+                    )
                 } else {
                     "".to_string()
                 };
-                render_info(&format!("  - GPU {}: {:.1}GB memory, {:.1}% util, {:.1}GB reserved{}", 
-                    gpu_index, policy.max_memory_gb, policy.max_utilization_pct, policy.reserved_memory_gb, users_info));
+                render_info(&format!(
+                    "  - GPU {}: {:.1}GB memory, {:.1}% util, {:.1}GB reserved{}",
+                    gpu_index,
+                    policy.max_memory_gb,
+                    policy.max_utilization_pct,
+                    policy.reserved_memory_gb,
+                    users_info
+                ));
             }
-            
-            render_info(&format!("\n📁 Config file: {}", guard_manager.get_config_file_path().display()));
+
+            render_info(&format!(
+                "\n📁 Config file: {}",
+                guard_manager.get_config_file_path().display()
+            ));
         }
 
         // Enable/disable guard mode
         if cli.guard_enable {
-            guard_manager.set_enabled(true)
+            guard_manager
+                .set_enabled(true)
                 .context("Failed to enable Guard Mode")?;
             render_info("✅ Guard Mode enabled");
         }
 
         if cli.guard_disable {
-            guard_manager.set_enabled(false)
+            guard_manager
+                .set_enabled(false)
                 .context("Failed to disable Guard Mode")?;
             render_info("✅ Guard Mode disabled");
         }
 
         // Set dry-run mode
         if cli.guard_dry_run {
-            guard_manager.set_dry_run(true)
+            guard_manager
+                .set_dry_run(true)
                 .context("Failed to set dry-run mode")?;
             render_info("✅ Guard Mode set to dry-run (no enforcement)");
         }
 
         if cli.guard_enforce {
-            guard_manager.set_dry_run(false)
+            guard_manager
+                .set_dry_run(false)
                 .context("Failed to set enforcement mode")?;
             render_info("✅ Guard Mode set to enforce policies");
         }
@@ -1051,15 +1248,19 @@ async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::ve
                 time_overrides: Vec::new(),
             };
 
-            guard_manager.add_user_policy(user_policy)
+            guard_manager
+                .add_user_policy(user_policy)
                 .context("Failed to add user policy")?;
-            render_info(&format!("✅ Added policy for user '{}': {:.1}GB memory, {:.1}% util, {} processes", 
-                username, memory_limit, utilization_limit, process_limit));
+            render_info(&format!(
+                "✅ Added policy for user '{}': {:.1}GB memory, {:.1}% util, {} processes",
+                username, memory_limit, utilization_limit, process_limit
+            ));
         }
 
         // Remove user policy
         if let Some(username) = &cli.guard_remove_user {
-            guard_manager.remove_user_policy(username)
+            guard_manager
+                .remove_user_policy(username)
                 .context("Failed to remove user policy")?;
             render_info(&format!("✅ Removed policy for user '{}'", username));
         }
@@ -1069,10 +1270,14 @@ async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::ve
             let memory_limit = cli.guard_group_memory_limit.unwrap_or(32.0);
             let utilization_limit = cli.guard_group_utilization_limit.unwrap_or(80.0);
             let process_limit = cli.guard_group_process_limit.unwrap_or(10);
-            
+
             // Parse members from comma-separated input
             let members = if let Some(members_str) = &cli.guard_group_members {
-                members_str.split(',').map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect()
+                members_str
+                    .split(',')
+                    .map(|m| m.trim().to_string())
+                    .filter(|m| !m.is_empty())
+                    .collect()
             } else {
                 vec![]
             };
@@ -1094,16 +1299,20 @@ async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::ve
                 members,
             };
 
-            guard_manager.add_group_policy(group_policy)
+            guard_manager
+                .add_group_policy(group_policy)
                 .context("Failed to add group policy")?;
-            
-            render_info(&format!("✅ Added policy for group '{}': {:.1}GB memory, {:.1}% util, {} processes{}", 
-                group_name, memory_limit, utilization_limit, process_limit, members_info));
+
+            render_info(&format!(
+                "✅ Added policy for group '{}': {:.1}GB memory, {:.1}% util, {} processes{}",
+                group_name, memory_limit, utilization_limit, process_limit, members_info
+            ));
         }
 
         // Remove group policy
         if let Some(group_name) = &cli.guard_remove_group {
-            guard_manager.remove_group_policy(group_name)
+            guard_manager
+                .remove_group_policy(group_name)
                 .context("Failed to remove group policy")?;
             render_info(&format!("✅ Removed policy for group '{}'", group_name));
         }
@@ -1113,16 +1322,24 @@ async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::ve
             let memory_limit = cli.guard_gpu_memory_limit.unwrap_or(24.0);
             let utilization_limit = cli.guard_gpu_utilization_limit.unwrap_or(90.0);
             let reserved_memory = cli.guard_gpu_reserved_memory.unwrap_or(2.0);
-            
+
             // Parse allowed users from comma-separated input
             let allowed_users = if let Some(users_str) = &cli.guard_gpu_allowed_users {
-                users_str.split(',').map(|u| u.trim().to_string()).filter(|u| !u.is_empty()).collect()
+                users_str
+                    .split(',')
+                    .map(|u| u.trim().to_string())
+                    .filter(|u| !u.is_empty())
+                    .collect()
             } else {
                 vec![]
             };
 
             let users_info = if !allowed_users.is_empty() {
-                format!(", {} allowed users: {}", allowed_users.len(), allowed_users.join(", "))
+                format!(
+                    ", {} allowed users: {}",
+                    allowed_users.len(),
+                    allowed_users.join(", ")
+                )
             } else {
                 "".to_string()
             };
@@ -1137,71 +1354,94 @@ async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::ve
                 maintenance_window: None,
             };
 
-            guard_manager.add_gpu_policy(gpu_policy)
+            guard_manager
+                .add_gpu_policy(gpu_policy)
                 .context("Failed to add GPU policy")?;
-            
-            render_info(&format!("✅ Added policy for GPU {}: {:.1}GB memory, {:.1}% util, {:.1}GB reserved{}", 
-                gpu_index, memory_limit, utilization_limit, reserved_memory, users_info));
+
+            render_info(&format!(
+                "✅ Added policy for GPU {}: {:.1}GB memory, {:.1}% util, {:.1}GB reserved{}",
+                gpu_index, memory_limit, utilization_limit, reserved_memory, users_info
+            ));
         }
 
         // Remove GPU policy
         if let Some(gpu_index) = cli.guard_remove_gpu {
-            guard_manager.remove_gpu_policy(gpu_index)
+            guard_manager
+                .remove_gpu_policy(gpu_index)
                 .context("Failed to remove GPU policy")?;
             render_info(&format!("✅ Removed policy for GPU {}", gpu_index));
         }
 
         // Export configuration
         if cli.guard_export_config {
-            let json = guard_manager.export_to_json()
+            let json = guard_manager
+                .export_to_json()
                 .context("Failed to export Guard Mode config to JSON")?;
             println!("{}", json);
         }
 
         // Import configuration
         if let Some(file_path) = &cli.guard_import_config {
-            let content = std::fs::read_to_string(file_path)
-                .context("Failed to read import file")?;
-            guard_manager.import_from_json(&content)
+            let content =
+                std::fs::read_to_string(file_path).context("Failed to read import file")?;
+            guard_manager
+                .import_from_json(&content)
                 .context("Failed to import Guard Mode config from JSON")?;
-            render_info(&format!("✅ Imported Guard Mode configuration from: {}", file_path));
+            render_info(&format!(
+                "✅ Imported Guard Mode configuration from: {}",
+                file_path
+            ));
         }
 
         // Test policies in dry-run mode
         if cli.guard_test_policies {
             render_info("🧪 Testing policies in dry-run mode...");
-            
+
             // Get current GPU processes for testing
             let gpu_manager = crate::vendor::GpuManager::initialize()
                 .context("Failed to initialize GPU manager")?;
-            let test_processes = gpu_manager.get_all_processes()
+            let test_processes = gpu_manager
+                .get_all_processes()
                 .context("Failed to get GPU processes")?;
-            
-            let result = guard_manager.simulate_policy_check(&test_processes)
+
+            let result = guard_manager
+                .simulate_policy_check(&test_processes)
                 .context("Failed to simulate policy check")?;
-            
+
             render_info("📊 Simulation Results:");
             render_info(&format!("  Violations found: {}", result.violations.len()));
             render_info(&format!("  Warnings found: {}", result.warnings.len()));
-            render_info(&format!("  Actions simulated: {}", result.actions_taken.len()));
-            
+            render_info(&format!(
+                "  Actions simulated: {}",
+                result.actions_taken.len()
+            ));
+
             if !result.violations.is_empty() {
                 render_info("\n🚨 Simulated Violations:");
                 for (i, violation) in result.violations.iter().enumerate() {
-                    render_info(&format!("  {}. {} - {:?} ({:?}): {}", 
-                        i + 1, violation.user, violation.violation_type, 
-                        violation.severity, violation.message));
+                    render_info(&format!(
+                        "  {}. {} - {:?} ({:?}): {}",
+                        i + 1,
+                        violation.user,
+                        violation.violation_type,
+                        violation.severity,
+                        violation.message
+                    ));
                 }
             }
-            
+
             if !result.actions_taken.is_empty() {
                 render_info("\n⚡ Simulated Actions:");
                 for (i, action) in result.actions_taken.iter().enumerate() {
-                    render_info(&format!("  {}. {:?}: {}", 
-                        i + 1, action.action_type, action.message));
+                    render_info(&format!(
+                        "  {}. {:?}: {}",
+                        i + 1,
+                        action.action_type,
+                        action.message
+                    ));
                 }
             }
-            
+
             if result.violations.is_empty() && result.warnings.is_empty() {
                 render_info("✅ No policy violations detected in simulation!");
             }
@@ -1209,10 +1449,13 @@ async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::ve
 
         // Toggle dry-run mode
         if cli.guard_toggle_dry_run {
-            let new_dry_run = guard_manager.toggle_dry_run()
+            let new_dry_run = guard_manager
+                .toggle_dry_run()
                 .context("Failed to toggle dry-run mode")?;
-            render_info(&format!("✅ Dry-run mode {} (simulation only)", 
-                if new_dry_run { "enabled" } else { "disabled" }));
+            render_info(&format!(
+                "✅ Dry-run mode {} (simulation only)",
+                if new_dry_run { "enabled" } else { "disabled" }
+            ));
         }
 
         return Ok(());
@@ -1245,14 +1488,17 @@ async fn execute_register_node_operation(
     let node_id = Uuid::new_v4().to_string();
     let hostname = crate::util::get_hostname();
     let ip_address = "127.0.0.1".to_string(); // Simplified for now
-    
+
     // Get GPU information
-    let gpus = gpu_manager.get_all_snapshots()
+    let gpus = gpu_manager
+        .get_all_snapshots()
         .context("Failed to get GPU snapshots")?;
-    let procs = gpu_manager.get_all_processes()
+    let procs = gpu_manager
+        .get_all_processes()
         .context("Failed to get GPU processes")?;
-    
-    let total_memory_gb: f32 = gpus.iter()
+
+    let total_memory_gb: f32 = gpus
+        .iter()
         .map(|gpu| gpu.mem_total_mb as f32 / 1024.0)
         .sum();
 
@@ -1279,19 +1525,21 @@ async fn execute_register_node_operation(
     };
 
     let client = Client::new();
-    
+
     // Register node
     let register_url = format!("{}/api/nodes/{}/register", coordinator_url, node_id);
-    match client.post(&register_url)
-        .json(&node_info)
-        .send()
-        .await
-    {
+    match client.post(&register_url).json(&node_info).send().await {
         Ok(response) => {
             if response.status().is_success() {
-                render_info(&format!("✅ Successfully registered node {} with coordinator", node_id));
+                render_info(&format!(
+                    "✅ Successfully registered node {} with coordinator",
+                    node_id
+                ));
             } else {
-                return Err(anyhow::anyhow!("Failed to register node: HTTP {}", response.status()));
+                return Err(anyhow::anyhow!(
+                    "Failed to register node: HTTP {}",
+                    response.status()
+                ));
             }
         }
         Err(e) => {
@@ -1301,16 +1549,15 @@ async fn execute_register_node_operation(
 
     // Send initial snapshot
     let snapshot_url = format!("{}/api/nodes/{}/snapshot", coordinator_url, node_id);
-    match client.post(&snapshot_url)
-        .json(&snapshot)
-        .send()
-        .await
-    {
+    match client.post(&snapshot_url).json(&snapshot).send().await {
         Ok(response) => {
             if response.status().is_success() {
                 render_info("✅ Successfully sent initial snapshot to coordinator");
             } else {
-                return Err(anyhow::anyhow!("Failed to send snapshot: HTTP {}", response.status()));
+                return Err(anyhow::anyhow!(
+                    "Failed to send snapshot: HTTP {}",
+                    response.status()
+                ));
             }
         }
         Err(e) => {
@@ -1321,10 +1568,10 @@ async fn execute_register_node_operation(
     // Start periodic snapshot updates
     render_info("🔄 Starting periodic snapshot updates...");
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-    
+
     loop {
         interval.tick().await;
-        
+
         // Get fresh snapshot
         let gpus = match gpu_manager.get_all_snapshots() {
             Ok(gpus) => gpus,
@@ -1333,7 +1580,7 @@ async fn execute_register_node_operation(
                 continue;
             }
         };
-        
+
         let procs = match gpu_manager.get_all_processes() {
             Ok(procs) => procs,
             Err(e) => {
@@ -1352,11 +1599,7 @@ async fn execute_register_node_operation(
         };
 
         // Send snapshot
-        match client.post(&snapshot_url)
-            .json(&snapshot)
-            .send()
-            .await
-        {
+        match client.post(&snapshot_url).json(&snapshot).send().await {
             Ok(response) => {
                 if response.status().is_success() {
                     debug!("Successfully sent snapshot update");

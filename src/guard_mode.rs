@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use crate::nvml_api::GpuProc;
 
@@ -395,7 +395,7 @@ impl GuardModeManager {
     fn load_config(path: &PathBuf) -> Result<GuardModeConfig> {
         let content = fs::read_to_string(path)
             .map_err(|e| anyhow::anyhow!("Failed to read config file: {}", e))?;
-        
+
         let config: GuardModeConfig = toml::from_str(&content)
             .map_err(|e| anyhow::anyhow!("Failed to parse config file: {}", e))?;
 
@@ -410,7 +410,7 @@ impl GuardModeManager {
             Ok(content) => {
                 info!("Config serialized successfully, writing to file...");
                 content
-            },
+            }
             Err(e) => {
                 error!("TOML serialization failed: {}", e);
                 return Err(anyhow::anyhow!("Failed to serialize config: {}", e));
@@ -455,7 +455,9 @@ impl GuardModeManager {
 
     /// Add a user policy
     pub fn add_user_policy(&mut self, policy: UserPolicy) -> Result<()> {
-        self.config.user_policies.insert(policy.username.clone(), policy);
+        self.config
+            .user_policies
+            .insert(policy.username.clone(), policy);
         self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
         Self::save_config(&self.config_path, &self.config)?;
         Ok(())
@@ -471,7 +473,9 @@ impl GuardModeManager {
 
     /// Add a group policy
     pub fn add_group_policy(&mut self, policy: GroupPolicy) -> Result<()> {
-        self.config.group_policies.insert(policy.group_name.clone(), policy);
+        self.config
+            .group_policies
+            .insert(policy.group_name.clone(), policy);
         self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
         Self::save_config(&self.config_path, &self.config)?;
         Ok(())
@@ -488,7 +492,6 @@ impl GuardModeManager {
         info!("GPU policy added successfully");
         Ok(())
     }
-
 
     /// Remove a group policy
     pub fn remove_group_policy(&mut self, group_name: &str) -> Result<()> {
@@ -509,7 +512,10 @@ impl GuardModeManager {
             Self::save_config(&self.config_path, &self.config)?;
             Ok(())
         } else {
-            Err(anyhow::anyhow!("GPU policy for GPU {} not found", gpu_index))
+            Err(anyhow::anyhow!(
+                "GPU policy for GPU {} not found",
+                gpu_index
+            ))
         }
     }
 
@@ -532,7 +538,10 @@ impl GuardModeManager {
         // Group processes by user
         let mut user_processes: HashMap<String, Vec<&GpuProc>> = HashMap::new();
         for process in processes {
-            user_processes.entry(process.user.clone()).or_default().push(process);
+            user_processes
+                .entry(process.user.clone())
+                .or_default()
+                .push(process);
         }
 
         // Check each user's processes
@@ -565,7 +574,11 @@ impl GuardModeManager {
     }
 
     /// Check policies for a specific user
-    fn check_user_policies(&mut self, username: &str, processes: &[&GpuProc]) -> Result<EnforcementResult> {
+    fn check_user_policies(
+        &mut self,
+        username: &str,
+        processes: &[&GpuProc],
+    ) -> Result<EnforcementResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
         let actions_taken = Vec::new();
@@ -574,7 +587,8 @@ impl GuardModeManager {
         let user_policy = self.get_user_policy(username);
 
         // Check memory limits
-        let total_memory = processes.iter()
+        let total_memory = processes
+            .iter()
             .map(|p| p.used_mem_mb as f32 / 1024.0)
             .sum::<f32>();
 
@@ -587,9 +601,12 @@ impl GuardModeManager {
                 policy_name: "memory_limit".to_string(),
                 current_value: total_memory,
                 limit_value: user_policy.memory_limit_gb,
-                message: format!("User {} exceeded memory limit: {:.1}GB > {:.1}GB", 
-                    username, total_memory, user_policy.memory_limit_gb),
-                recommended_action: "Terminate some processes or request limit increase".to_string(),
+                message: format!(
+                    "User {} exceeded memory limit: {:.1}GB > {:.1}GB",
+                    username, total_memory, user_policy.memory_limit_gb
+                ),
+                recommended_action: "Terminate some processes or request limit increase"
+                    .to_string(),
             });
         } else if total_memory > user_policy.memory_limit_gb * 0.8 {
             warnings.push(PolicyWarning {
@@ -599,8 +616,10 @@ impl GuardModeManager {
                 policy_name: "memory_limit".to_string(),
                 current_value: total_memory,
                 limit_value: user_policy.memory_limit_gb,
-                message: format!("User {} approaching memory limit: {:.1}GB / {:.1}GB", 
-                    username, total_memory, user_policy.memory_limit_gb),
+                message: format!(
+                    "User {} approaching memory limit: {:.1}GB / {:.1}GB",
+                    username, total_memory, user_policy.memory_limit_gb
+                ),
                 time_to_limit: None,
             });
         }
@@ -615,15 +634,22 @@ impl GuardModeManager {
                 policy_name: "concurrent_processes".to_string(),
                 current_value: processes.len() as f32,
                 limit_value: user_policy.max_concurrent_processes as f32,
-                message: format!("User {} exceeded concurrent process limit: {} > {}", 
-                    username, processes.len(), user_policy.max_concurrent_processes),
-                recommended_action: "Terminate some processes or request limit increase".to_string(),
+                message: format!(
+                    "User {} exceeded concurrent process limit: {} > {}",
+                    username,
+                    processes.len(),
+                    user_policy.max_concurrent_processes
+                ),
+                recommended_action: "Terminate some processes or request limit increase"
+                    .to_string(),
             });
         }
 
         // Check GPU access permissions
         for process in processes {
-            if !user_policy.allowed_gpus.is_empty() && !user_policy.allowed_gpus.contains(&process.gpu_index) {
+            if !user_policy.allowed_gpus.is_empty()
+                && !user_policy.allowed_gpus.contains(&process.gpu_index)
+            {
                 violations.push(PolicyViolation {
                     violation_type: ViolationType::UnauthorizedGpuAccess,
                     severity: ViolationSeverity::High,
@@ -632,7 +658,10 @@ impl GuardModeManager {
                     policy_name: "gpu_access".to_string(),
                     current_value: process.gpu_index as f32,
                     limit_value: user_policy.allowed_gpus[0] as f32,
-                    message: format!("User {} accessing unauthorized GPU: {}", username, process.gpu_index),
+                    message: format!(
+                        "User {} accessing unauthorized GPU: {}",
+                        username, process.gpu_index
+                    ),
                     recommended_action: "Terminate process or add GPU to allowed list".to_string(),
                 });
             }
@@ -646,7 +675,10 @@ impl GuardModeManager {
                     policy_name: "blocked_gpu".to_string(),
                     current_value: process.gpu_index as f32,
                     limit_value: -1.0,
-                    message: format!("User {} accessing blocked GPU: {}", username, process.gpu_index),
+                    message: format!(
+                        "User {} accessing blocked GPU: {}",
+                        username, process.gpu_index
+                    ),
                     recommended_action: "Immediately terminate process".to_string(),
                 });
             }
@@ -696,7 +728,7 @@ impl GuardModeManager {
     pub fn import_from_json(&mut self, json: &str) -> Result<()> {
         let config: GuardModeConfig = serde_json::from_str(json)
             .map_err(|e| anyhow::anyhow!("Failed to import config from JSON: {}", e))?;
-        
+
         self.update_config(config)?;
         Ok(())
     }
@@ -712,55 +744,59 @@ impl GuardModeManager {
     }
 
     /// Simulate actions in dry-run mode
-    fn simulate_actions(&self, violations: &[PolicyViolation], warnings: &[PolicyWarning]) -> Vec<EnforcementAction> {
+    fn simulate_actions(
+        &self,
+        violations: &[PolicyViolation],
+        warnings: &[PolicyWarning],
+    ) -> Vec<EnforcementAction> {
         let mut actions = Vec::new();
 
         for violation in violations {
             let action = match violation.severity {
-                ViolationSeverity::Critical => {
-                    EnforcementAction {
-                        action_type: ActionType::ProcessTermination,
-                        user: violation.user.clone(),
-                        process: violation.process.clone(),
-                        policy_name: violation.policy_name.clone(),
-                        message: format!("[DRY-RUN] Would terminate process {} for critical violation: {}", 
-                            violation.process.pid, violation.message),
-                        success: true,
-                    }
-                }
-                ViolationSeverity::High => {
-                    EnforcementAction {
-                        action_type: ActionType::Warning,
-                        user: violation.user.clone(),
-                        process: violation.process.clone(),
-                        policy_name: violation.policy_name.clone(),
-                        message: format!("[DRY-RUN] Would send warning for high severity violation: {}", 
-                            violation.message),
-                        success: true,
-                    }
-                }
-                ViolationSeverity::Medium => {
-                    EnforcementAction {
-                        action_type: ActionType::Warning,
-                        user: violation.user.clone(),
-                        process: violation.process.clone(),
-                        policy_name: violation.policy_name.clone(),
-                        message: format!("[DRY-RUN] Would send warning for medium severity violation: {}", 
-                            violation.message),
-                        success: true,
-                    }
-                }
-                ViolationSeverity::Low => {
-                    EnforcementAction {
-                        action_type: ActionType::NotificationSent,
-                        user: violation.user.clone(),
-                        process: violation.process.clone(),
-                        policy_name: violation.policy_name.clone(),
-                        message: format!("[DRY-RUN] Would send notification for low severity violation: {}", 
-                            violation.message),
-                        success: true,
-                    }
-                }
+                ViolationSeverity::Critical => EnforcementAction {
+                    action_type: ActionType::ProcessTermination,
+                    user: violation.user.clone(),
+                    process: violation.process.clone(),
+                    policy_name: violation.policy_name.clone(),
+                    message: format!(
+                        "[DRY-RUN] Would terminate process {} for critical violation: {}",
+                        violation.process.pid, violation.message
+                    ),
+                    success: true,
+                },
+                ViolationSeverity::High => EnforcementAction {
+                    action_type: ActionType::Warning,
+                    user: violation.user.clone(),
+                    process: violation.process.clone(),
+                    policy_name: violation.policy_name.clone(),
+                    message: format!(
+                        "[DRY-RUN] Would send warning for high severity violation: {}",
+                        violation.message
+                    ),
+                    success: true,
+                },
+                ViolationSeverity::Medium => EnforcementAction {
+                    action_type: ActionType::Warning,
+                    user: violation.user.clone(),
+                    process: violation.process.clone(),
+                    policy_name: violation.policy_name.clone(),
+                    message: format!(
+                        "[DRY-RUN] Would send warning for medium severity violation: {}",
+                        violation.message
+                    ),
+                    success: true,
+                },
+                ViolationSeverity::Low => EnforcementAction {
+                    action_type: ActionType::NotificationSent,
+                    user: violation.user.clone(),
+                    process: violation.process.clone(),
+                    policy_name: violation.policy_name.clone(),
+                    message: format!(
+                        "[DRY-RUN] Would send notification for low severity violation: {}",
+                        violation.message
+                    ),
+                    success: true,
+                },
             };
             actions.push(action);
         }
@@ -771,7 +807,10 @@ impl GuardModeManager {
                 user: warning.user.clone(),
                 process: warning.process.clone(),
                 policy_name: warning.policy_name.clone(),
-                message: format!("[DRY-RUN] Would send warning notification: {}", warning.message),
+                message: format!(
+                    "[DRY-RUN] Would send warning notification: {}",
+                    warning.message
+                ),
                 success: true,
             };
             actions.push(action);
@@ -781,7 +820,11 @@ impl GuardModeManager {
     }
 
     /// Execute actions in enforcement mode
-    fn execute_actions(&self, violations: &[PolicyViolation], warnings: &[PolicyWarning]) -> Result<Vec<EnforcementAction>> {
+    fn execute_actions(
+        &self,
+        violations: &[PolicyViolation],
+        warnings: &[PolicyWarning],
+    ) -> Result<Vec<EnforcementAction>> {
         let mut actions = Vec::new();
 
         // Send notifications for warnings
@@ -789,7 +832,7 @@ impl GuardModeManager {
             if self.config.enforcement.notifications.console {
                 info!("⚠️ Policy Warning: {} - {}", warning.user, warning.message);
             }
-            
+
             actions.push(EnforcementAction {
                 action_type: ActionType::NotificationSent,
                 user: warning.user.clone(),
@@ -807,16 +850,20 @@ impl GuardModeManager {
                     if self.config.enforcement.hard_enforcement {
                         // In a real implementation, this would actually terminate the process
                         // For now, we'll just log it
-                        info!("🚨 CRITICAL VIOLATION: Would terminate process {} for user {}: {}", 
-                            violation.process.pid, violation.user, violation.message);
-                        
+                        info!(
+                            "🚨 CRITICAL VIOLATION: Would terminate process {} for user {}: {}",
+                            violation.process.pid, violation.user, violation.message
+                        );
+
                         EnforcementAction {
                             action_type: ActionType::ProcessTermination,
                             user: violation.user.clone(),
                             process: violation.process.clone(),
                             policy_name: violation.policy_name.clone(),
-                            message: format!("Process {} terminated for critical violation: {}", 
-                                violation.process.pid, violation.message),
+                            message: format!(
+                                "Process {} terminated for critical violation: {}",
+                                violation.process.pid, violation.message
+                            ),
                             success: true,
                         }
                     } else {
@@ -825,16 +872,21 @@ impl GuardModeManager {
                             user: violation.user.clone(),
                             process: violation.process.clone(),
                             policy_name: violation.policy_name.clone(),
-                            message: format!("Critical violation detected (hard enforcement disabled): {}", 
-                                violation.message),
+                            message: format!(
+                                "Critical violation detected (hard enforcement disabled): {}",
+                                violation.message
+                            ),
                             success: true,
                         }
                     }
                 }
                 ViolationSeverity::High | ViolationSeverity::Medium => {
                     if self.config.enforcement.soft_enforcement {
-                        info!("⚠️ Policy Violation: {} - {}", violation.user, violation.message);
-                        
+                        info!(
+                            "⚠️ Policy Violation: {} - {}",
+                            violation.user, violation.message
+                        );
+
                         EnforcementAction {
                             action_type: ActionType::Warning,
                             user: violation.user.clone(),
@@ -849,22 +901,22 @@ impl GuardModeManager {
                             user: violation.user.clone(),
                             process: violation.process.clone(),
                             policy_name: violation.policy_name.clone(),
-                            message: format!("Violation logged (soft enforcement disabled): {}", 
-                                violation.message),
+                            message: format!(
+                                "Violation logged (soft enforcement disabled): {}",
+                                violation.message
+                            ),
                             success: true,
                         }
                     }
                 }
-                ViolationSeverity::Low => {
-                    EnforcementAction {
-                        action_type: ActionType::NotificationSent,
-                        user: violation.user.clone(),
-                        process: violation.process.clone(),
-                        policy_name: violation.policy_name.clone(),
-                        message: format!("Low severity violation logged: {}", violation.message),
-                        success: true,
-                    }
-                }
+                ViolationSeverity::Low => EnforcementAction {
+                    action_type: ActionType::NotificationSent,
+                    user: violation.user.clone(),
+                    process: violation.process.clone(),
+                    policy_name: violation.policy_name.clone(),
+                    message: format!("Low severity violation logged: {}", violation.message),
+                    success: true,
+                },
             };
             actions.push(action);
         }
@@ -876,15 +928,14 @@ impl GuardModeManager {
     pub fn simulate_policy_check(&mut self, processes: &[GpuProc]) -> Result<EnforcementResult> {
         let original_dry_run = self.config.global.dry_run;
         self.config.global.dry_run = true;
-        
+
         let result = self.check_policies(processes)?;
-        
+
         // Restore original setting
         self.config.global.dry_run = original_dry_run;
-        
+
         Ok(result)
     }
-
 
     /// Toggle dry-run mode
     pub fn toggle_dry_run(&mut self) -> Result<bool> {
@@ -916,7 +967,7 @@ mod tests {
             violation_history: Vec::new(),
             warning_history: Vec::new(),
         };
-        
+
         let user_policy = manager.get_user_policy("testuser");
         assert_eq!(user_policy.username, "testuser");
         assert!(user_policy.memory_limit_gb > 0.0);
