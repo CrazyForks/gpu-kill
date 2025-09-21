@@ -50,7 +50,8 @@ jobs:
       - name: Install system dependencies
         run: ${{ matrix.install_deps }}
 
-      - name: Show system resources
+      - name: Show system resources (Linux/macOS)
+        if: runner.os != 'Windows'
         run: |
           echo "=== System Resources ==="
           df -h
@@ -59,8 +60,6 @@ jobs:
             nproc
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
             sysctl -n hw.ncpu
-          elif [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo %NUMBER_OF_PROCESSORS%
           fi
           echo "=== Memory Info ==="
           if [[ "${{ runner.os }}" == "Linux" ]]; then
@@ -69,9 +68,18 @@ jobs:
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
             vm_stat
             system_profiler SPHardwareDataType | grep "Memory:"
-          elif [[ "${{ runner.os }}" == "Windows" ]]; then
-            systeminfo | findstr "Total Physical Memory"
           fi
+
+      - name: Show system resources (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          echo === System Resources ===
+          dir C:\
+          echo === CPU Info ===
+          echo %NUMBER_OF_PROCESSORS% processors
+          echo === Memory Info ===
+          systeminfo | findstr "Total Physical Memory"
 
       - name: Cache cargo dependencies
         uses: actions/cache@v3
@@ -182,24 +190,39 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install cross-compilation tools
-        run: |
-          # Install cargo-cross for proper cross-compilation
-          cargo install cross --git https://github.com/cross-rs/cross
-          
-          # Install target-specific tools
-          rustup target add ${{ matrix.target }}
-          
-          # Install system dependencies for cross-compilation
-          sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev pkg-config
-          
-          # Install additional tools for specific targets
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            sudo apt-get install -y gcc-mingw-w64-x86-64
-          fi
+            - name: Install cross-compilation tools
+              run: |
+                # Install cargo-cross for proper cross-compilation
+                cargo install cross --git https://github.com/cross-rs/cross
+                
+                # Install target-specific tools
+                rustup target add ${{ matrix.target }}
+                
+                # Install system dependencies for cross-compilation
+                sudo apt-get update
+                sudo apt-get install -y build-essential libssl-dev pkg-config
+                
+                # Install additional tools for specific targets
+                if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+                  sudo apt-get install -y gcc-mingw-w64-x86-64
+                elif [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+                  sudo apt-get install -y gcc-aarch64-linux-gnu libssl-dev:arm64
+                  # Enable ARM64 architecture
+                  sudo dpkg --add-architecture arm64
+                  sudo apt-get update
+                fi
 
       - name: Cross-compile
+        env:
+          # Set up OpenSSL environment variables for cross-compilation
+          OPENSSL_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu' || '/usr' }}
+          OPENSSL_INCLUDE_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/include' || '/usr/include/openssl' }}
+          OPENSSL_LIB_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/lib' || '/usr/lib/x86_64-linux-gnu' }}
+          PKG_CONFIG_PATH: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/lib/pkgconfig' || '/usr/lib/x86_64-linux-gnu/pkgconfig' }}
+          # Allow cross-compilation
+          PKG_CONFIG_ALLOW_CROSS: 1
+          # Set linker for ARM64
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && 'aarch64-linux-gnu-gcc' || '' }}
         run: |
           # Use cross for reliable cross-compilation
           cross build --release --target ${{ matrix.target }}
@@ -207,9 +230,9 @@ jobs:
           # Verify the binary was created
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then
             ls -la target/${{ matrix.target }}/release/gpukill.exe
-                else
-                  ls -la target/${{ matrix.target }}/release/gpukill
-                fi
+          else
+            ls -la target/${{ matrix.target }}/release/gpukill
+          fi
 
   # macOS compilation (native, not cross-compiled)
   macos-compile:
