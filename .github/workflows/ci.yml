@@ -13,12 +13,16 @@ permissions:
 env:
   RUST_BACKTRACE: 1
   RUST_LOG: info
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 2
+  CARGO_HTTP_TIMEOUT: 30
 
 jobs:
   # Standard CI tests (no GPU hardware required)
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30  # Prevent long-running jobs
     strategy:
       matrix:
         os: [ubuntu-22.04, macos-13, windows-2022]
@@ -46,6 +50,16 @@ jobs:
       - name: Install system dependencies
         run: ${{ matrix.install_deps }}
 
+      - name: Show system resources
+        run: |
+          echo "=== System Resources ==="
+          df -h
+          free -h
+          echo "=== CPU Info ==="
+          nproc
+          echo "=== Memory Info ==="
+          cat /proc/meminfo | head -5
+
       - name: Cache cargo dependencies
         uses: actions/cache@v3
         with:
@@ -54,23 +68,25 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Run unit tests
         run: |
-          cargo test --features mock_nvml
-          cargo test --no-default-features
+          cargo test --features mock_nvml --jobs 2
+          cargo test --no-default-features --jobs 2
 
       - name: Run integration tests
-        run: cargo test --test integration_tests
+        run: cargo test --test integration_tests --jobs 2
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings --jobs 2
 
       - name: Run fmt
         run: cargo fmt --all -- --check
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --jobs 2
 
       - name: Test basic functionality
         run: |
@@ -81,6 +97,7 @@ jobs:
   security:
     name: Security Audit
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     
     steps:
       - name: Checkout code
@@ -107,6 +124,7 @@ jobs:
   api-tests:
     name: API Tests
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     
     steps:
       - name: Checkout code
@@ -136,6 +154,7 @@ jobs:
   cross-compile:
     name: Cross-Compile (${{ matrix.target }})
     runs-on: ubuntu-22.04
+    timeout-minutes: 45  # Cross-compilation takes longer
     strategy:
       matrix:
         target: 
