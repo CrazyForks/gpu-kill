@@ -1,7 +1,7 @@
 [workspace]
 members = [
     ".",
-    "mcp-server",
+    "mcp",
 ]
 
 [package]
