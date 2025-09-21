@@ -29,7 +29,7 @@ Our CI/CD system provides:
 - Code formatting (rustfmt)
 - Linting (clippy)
 - Security auditing (cargo-audit)
-- Cross-compilation testing
+- Multi-platform testing (Ubuntu, macOS, Windows)
 
 ### 2. GPU Hardware Tests (`gpu-testing.yml`)
 

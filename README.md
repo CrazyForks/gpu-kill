@@ -22,6 +22,26 @@ Join our Discord community for discussions, support, and updates:
 
 ## Requirements
 
+### Build Performance
+
+**For faster development builds:**
+```bash
+# Fast release build (recommended for development)
+cargo build --profile release-fast
+
+# Standard release build (optimized for production)
+cargo build --release
+
+# Maximum optimization (slowest, best performance)
+cargo build --profile release-max
+```
+
+**Build times on typical hardware:**
+- Debug build: ~3 seconds
+- Release-fast: ~28 seconds  
+- Release: ~28 seconds (improved from 76 seconds)
+- Release-max: ~60+ seconds (maximum optimization)
+
 ### System Dependencies
 
 **Linux (Ubuntu/Debian):**

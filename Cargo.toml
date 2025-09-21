@@ -68,7 +68,22 @@ default = []
 mock_nvml = []
 
 [profile.release]
-lto = true
-codegen-units = 1
+# Optimized for faster builds during development
+lto = "thin"  # Much faster than "true" (fat LTO)
+codegen-units = 4  # Allow parallel codegen for faster builds
 panic = "abort"
 strip = true
+
+# Fast release profile for development
+[profile.release-fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+opt-level = 2  # Slightly less optimization for speed
+
+# Maximum optimization profile for final releases
+[profile.release-max]
+inherits = "release"
+lto = true
+codegen-units = 1
+opt-level = 3
