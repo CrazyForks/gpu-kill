@@ -332,26 +332,30 @@ jobs:
           echo "OPENSSL_DIR: $OPENSSL_DIR"
 
       - name: Cross-compile
-        env:
-          # Set OpenSSL environment variables for cross-compilation
-          OPENSSL_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu' || '/usr' }}
-          OPENSSL_INCLUDE_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/include' || '/usr/include/openssl' }}
-          OPENSSL_LIB_DIR: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/lib' || '/usr/lib/x86_64-linux-gnu' }}
-          PKG_CONFIG_PATH: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '/usr/aarch64-linux-gnu/lib/pkgconfig' || '/usr/lib/x86_64-linux-gnu/pkgconfig' }}
-          PKG_CONFIG_ALLOW_CROSS: 1
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && 'aarch64-linux-gnu-gcc' || '' }}
         run: |
           # Use cross with proper environment setup
           echo "=== Cross-compiling to ${{ matrix.target }} ==="
-          echo "OPENSSL_DIR: $OPENSSL_DIR"
-          echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
           
           # For x86_64-unknown-linux-gnu, use regular cargo since it's the same as host
           if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
             echo "Using regular cargo for native target"
             cargo build --release --target ${{ matrix.target }}
+          elif [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            echo "Using cross for ARM64 cross-compilation with OpenSSL setup"
+            # Set OpenSSL environment variables for ARM64
+            export OPENSSL_DIR="/usr/aarch64-linux-gnu"
+            export OPENSSL_INCLUDE_DIR="/usr/aarch64-linux-gnu/include"
+            export OPENSSL_LIB_DIR="/usr/aarch64-linux-gnu/lib"
+            export PKG_CONFIG_PATH="/usr/aarch64-linux-gnu/lib/pkgconfig"
+            export PKG_CONFIG_ALLOW_CROSS=1
+            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="aarch64-linux-gnu-gcc"
+            echo "OPENSSL_DIR: $OPENSSL_DIR"
+            echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+            cross build --release --target ${{ matrix.target }}
           else
-            echo "Using cross for cross-compilation"
+            echo "Using cross for Windows cross-compilation"
+            # Set environment variables for Windows
+            export PKG_CONFIG_ALLOW_CROSS=1
             cross build --release --target ${{ matrix.target }}
           fi
           
