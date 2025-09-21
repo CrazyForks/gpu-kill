@@ -8,7 +8,7 @@ use tracing::info;
 use crate::rogue_detection::DetectionRules;
 
 /// Rogue detection configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RogueConfig {
     /// Detection rules and thresholds
     pub detection: DetectionConfig,
@@ -47,7 +47,7 @@ pub struct DetectionTypes {
 }
 
 /// Risk scoring configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ScoringConfig {
     /// Weights for different threat types
     pub threat_weights: ThreatWeights,
@@ -176,17 +176,7 @@ pub struct ConfigMetadata {
     pub description: String,
 }
 
-impl Default for RogueConfig {
-    fn default() -> Self {
-        Self {
-            detection: DetectionConfig::default(),
-            scoring: ScoringConfig::default(),
-            patterns: PatternConfig::default(),
-            alerts: AlertConfig::default(),
-            metadata: ConfigMetadata::default(),
-        }
-    }
-}
+// Default implementation is now derived
 
 impl Default for DetectionConfig {
     fn default() -> Self {
@@ -211,14 +201,7 @@ impl Default for DetectionTypes {
     }
 }
 
-impl Default for ScoringConfig {
-    fn default() -> Self {
-        Self {
-            threat_weights: ThreatWeights::default(),
-            risk_thresholds: RiskThresholds::default(),
-        }
-    }
-}
+// Default implementation is now derived
 
 impl Default for ThreatWeights {
     fn default() -> Self {

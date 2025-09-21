@@ -227,7 +227,7 @@ impl GpuVendorInterface for AmdVendor {
     fn device_count(&self) -> Result<u32> {
         // Use rocm-smi --showid to get device list
         let output = std::process::Command::new("rocm-smi")
-            .args(&["--showid"])
+            .args(["--showid"])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -249,7 +249,7 @@ impl GpuVendorInterface for AmdVendor {
 
     fn get_gpu_info(&self, index: u32) -> Result<GpuInfo> {
         let output = std::process::Command::new("rocm-smi")
-            .args(&["--showproductname", "-d", &index.to_string()])
+            .args(["--showproductname", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -267,7 +267,7 @@ impl GpuVendorInterface for AmdVendor {
 
         // Get memory info
         let mem_output = std::process::Command::new("rocm-smi")
-            .args(&["--showmeminfo", "vram", "-d", &index.to_string()])
+            .args(["--showmeminfo", "vram", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -299,7 +299,7 @@ impl GpuVendorInterface for AmdVendor {
 
         // Get utilization
         let util_output = std::process::Command::new("rocm-smi")
-            .args(&["--showuse", "-d", &index.to_string()])
+            .args(["--showuse", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -320,7 +320,7 @@ impl GpuVendorInterface for AmdVendor {
 
         // Get temperature
         let temp_output = std::process::Command::new("rocm-smi")
-            .args(&["--showtemp", "-d", &index.to_string()])
+            .args(["--showtemp", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -341,7 +341,7 @@ impl GpuVendorInterface for AmdVendor {
 
         // Get power usage
         let power_output = std::process::Command::new("rocm-smi")
-            .args(&["--showpower", "-d", &index.to_string()])
+            .args(["--showpower", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -362,7 +362,7 @@ impl GpuVendorInterface for AmdVendor {
 
         // Get memory usage
         let mem_output = std::process::Command::new("rocm-smi")
-            .args(&["--showmemuse", "--id", &index.to_string()])
+            .args(["--showmemuse", "--id", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -406,7 +406,7 @@ impl GpuVendorInterface for AmdVendor {
 
     fn reset_gpu(&self, index: u32) -> Result<()> {
         let output = std::process::Command::new("rocm-smi")
-            .args(&["--reset", "-d", &index.to_string()])
+            .args(["--reset", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -455,7 +455,7 @@ impl GpuVendorInterface for IntelVendor {
     fn device_count(&self) -> Result<u32> {
         // Try to get GPU count from intel_gpu_top
         let output = std::process::Command::new("intel_gpu_top")
-            .args(&["-l", "1"])
+            .args(["-l", "1"])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run intel_gpu_top: {}", e))?;
 
@@ -475,7 +475,7 @@ impl GpuVendorInterface for IntelVendor {
     fn get_gpu_info(&self, index: u32) -> Result<GpuInfo> {
         // Get GPU name from intel_gpu_top
         let output = std::process::Command::new("intel_gpu_top")
-            .args(&["-l", "1"])
+            .args(["-l", "1"])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run intel_gpu_top: {}", e))?;
 
@@ -517,7 +517,7 @@ impl GpuVendorInterface for IntelVendor {
 
         // Get utilization from intel_gpu_top
         let output = std::process::Command::new("intel_gpu_top")
-            .args(&["-l", "1"])
+            .args(["-l", "1"])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run intel_gpu_top: {}", e))?;
 
@@ -661,7 +661,7 @@ impl GpuVendorInterface for AppleVendor {
     fn get_gpu_processes(&self, _index: u32) -> Result<Vec<GpuProc>> {
         // Find processes that might be using Metal/GPU
         let output = std::process::Command::new("ps")
-            .args(&["-axo", "pid,user,comm,%mem"])
+            .args(["-axo", "pid,user,comm,%mem"])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run ps: {}", e))?;
 
@@ -716,7 +716,7 @@ impl GpuVendorInterface for AppleVendor {
 
         // Check for Apple Silicon by looking for Apple chip in system profiler
         let output = std::process::Command::new("system_profiler")
-            .args(&["SPHardwareDataType"])
+            .args(["SPHardwareDataType"])
             .output();
 
         if let Ok(output) = output {
@@ -739,7 +739,7 @@ impl AppleVendor {
     /// Get GPU information from system_profiler
     fn get_system_gpu_info() -> Result<GpuInfo> {
         let output = std::process::Command::new("system_profiler")
-            .args(&["SPDisplaysDataType"])
+            .args(["SPDisplaysDataType"])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run system_profiler: {}", e))?;
 
@@ -763,7 +763,7 @@ impl AppleVendor {
 
         // Get total memory from system
         let mem_output = std::process::Command::new("system_profiler")
-            .args(&["SPHardwareDataType"])
+            .args(["SPHardwareDataType"])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to get memory info: {}", e))?;
 

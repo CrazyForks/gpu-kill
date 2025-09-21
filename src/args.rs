@@ -442,7 +442,7 @@ mod tests {
 
     #[test]
     fn test_list_operation_parsing() {
-        let cli = Cli::try_parse_from(&["gpukill", "--list"]).unwrap();
+        let cli = Cli::try_parse_from(["gpukill", "--list"]).unwrap();
         assert!(cli.list);
         assert!(!cli.details);
         assert!(!cli.watch);
@@ -451,14 +451,14 @@ mod tests {
 
     #[test]
     fn test_list_with_details() {
-        let cli = Cli::try_parse_from(&["gpukill", "--list", "--details"]).unwrap();
+        let cli = Cli::try_parse_from(["gpukill", "--list", "--details"]).unwrap();
         assert!(cli.list);
         assert!(cli.details);
     }
 
     #[test]
     fn test_list_with_details_and_watch() {
-        let cli = Cli::try_parse_from(&["gpukill", "--list", "--details", "--watch"]).unwrap();
+        let cli = Cli::try_parse_from(["gpukill", "--list", "--details", "--watch"]).unwrap();
         assert!(cli.list);
         assert!(cli.details);
         assert!(cli.watch);
@@ -467,14 +467,14 @@ mod tests {
 
     #[test]
     fn test_list_json_output() {
-        let cli = Cli::try_parse_from(&["gpukill", "--list", "--output", "json"]).unwrap();
+        let cli = Cli::try_parse_from(["gpukill", "--list", "--output", "json"]).unwrap();
         assert!(cli.list);
         assert!(matches!(cli.output, OutputFormat::Json));
     }
 
     #[test]
     fn test_kill_operation() {
-        let cli = Cli::try_parse_from(&["gpukill", "--kill", "--pid", "12345"]).unwrap();
+        let cli = Cli::try_parse_from(["gpukill", "--kill", "--pid", "12345"]).unwrap();
         assert!(cli.kill);
         assert_eq!(cli.pid, Some(12345));
         assert_eq!(cli.timeout_secs, 5);
@@ -483,7 +483,7 @@ mod tests {
 
     #[test]
     fn test_kill_with_custom_timeout_and_force() {
-        let cli = Cli::try_parse_from(&["gpukill", "--kill", "--pid", "12345", "--timeout-secs", "10", "--force"]).unwrap();
+        let cli = Cli::try_parse_from(["gpukill", "--kill", "--pid", "12345", "--timeout-secs", "10", "--force"]).unwrap();
         assert!(cli.kill);
         assert_eq!(cli.pid, Some(12345));
         assert_eq!(cli.timeout_secs, 10);
@@ -492,7 +492,7 @@ mod tests {
 
     #[test]
     fn test_reset_single_gpu() {
-        let cli = Cli::try_parse_from(&["gpukill", "--reset", "--gpu", "0"]).unwrap();
+        let cli = Cli::try_parse_from(["gpukill", "--reset", "--gpu", "0"]).unwrap();
         assert!(cli.reset);
         assert_eq!(cli.gpu, Some(0));
         assert!(!cli.all);
@@ -500,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_reset_all_gpus() {
-        let cli = Cli::try_parse_from(&["gpukill", "--reset", "--all"]).unwrap();
+        let cli = Cli::try_parse_from(["gpukill", "--reset", "--all"]).unwrap();
         assert!(cli.reset);
         assert_eq!(cli.gpu, None);
         assert!(cli.all);
@@ -509,7 +509,7 @@ mod tests {
     #[test]
     fn test_invalid_pid() {
         // This test would fail at validation, not parsing
-        let result = Cli::try_parse_from(&["gpukill", "--kill", "--pid", "0"]);
+        let result = Cli::try_parse_from(["gpukill", "--kill", "--pid", "0"]);
         // The parsing succeeds, but validation should fail
         if let Ok(cli) = result {
             // Validation happens in the parse() method, not try_parse_from
@@ -522,7 +522,7 @@ mod tests {
     fn test_reset_without_target() {
         // This should fail because neither --gpu nor --all is specified
         // But parsing will succeed, validation will fail
-        let result = Cli::try_parse_from(&["gpukill", "--reset"]);
+        let result = Cli::try_parse_from(["gpukill", "--reset"]);
         assert!(result.is_ok());
         let cli = result.unwrap();
         // The validation should catch this in the actual parse() method

@@ -588,7 +588,7 @@ impl RogueDetector {
 mod tests {
     use super::*;
     use crate::audit::AuditManager;
-    use chrono::Utc;
+    // use chrono::Utc; // Unused for now
 
     #[test]
     fn test_detection_rules_default() {

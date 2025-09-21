@@ -51,6 +51,12 @@ pub struct ConfigManager {
     config: Config,
 }
 
+impl Default for ConfigManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[allow(dead_code)]
 impl ConfigManager {
     /// Create a new configuration manager

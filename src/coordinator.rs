@@ -98,6 +98,12 @@ pub struct CoordinatorState {
     pub last_cluster_snapshot: Arc<RwLock<Option<ClusterSnapshot>>>,
 }
 
+impl Default for CoordinatorState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CoordinatorState {
     pub fn new() -> Self {
         Self {
@@ -186,7 +192,7 @@ impl CoordinatorState {
                 let node_snapshot = NodeSnapshot {
                     node_id: node_id.clone(),
                     hostname: node_info.hostname.clone(),
-                    timestamp: snapshot.timestamp.clone(),
+                    timestamp: snapshot.timestamp,
                     gpus: snapshot.gpus.clone(),
                     processes: snapshot.processes.clone(),
                     status: node_info.status.clone(),

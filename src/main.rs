@@ -735,23 +735,6 @@ async fn execute_audit_operation(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_logging_initialization() {
-        // This test just ensures the function doesn't panic
-        let result = init_logging("info");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_version_string() {
-        let version = get_version_string();
-        assert!(version.contains("gpukill"));
-    }
-}
 
 /// Execute server operation
 async fn execute_server_operation(
@@ -1197,7 +1180,7 @@ async fn execute_guard_operation(cli: &crate::args::Cli, _gpu_manager: crate::ve
             let result = guard_manager.simulate_policy_check(&test_processes)
                 .context("Failed to simulate policy check")?;
             
-            render_info(&format!("📊 Simulation Results:"));
+            render_info("📊 Simulation Results:");
             render_info(&format!("  Violations found: {}", result.violations.len()));
             render_info(&format!("  Warnings found: {}", result.warnings.len()));
             render_info(&format!("  Actions simulated: {}", result.actions_taken.len()));
@@ -1385,5 +1368,23 @@ async fn execute_register_node_operation(
                 warn!("Failed to send snapshot update: {}", e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_logging_initialization() {
+        // This test just ensures the function doesn't panic
+        let result = init_logging("info");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_version_string() {
+        let version = get_version_string();
+        assert!(version.contains("gpukill"));
     }
 }

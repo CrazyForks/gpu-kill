@@ -1,7 +1,7 @@
 use gpukill::args::{Cli, OutputFormat, VendorFilter};
 use clap::Parser;
 use gpukill::nvml_api::{GpuInfo, GpuProc, GpuSnapshot, Snapshot};
-use gpukill::process_mgmt::{EnhancedProcessManager, ProcessStats};
+use gpukill::process_mgmt::EnhancedProcessManager;
 use gpukill::render::Renderer;
 use gpukill::vendor::{GpuVendor, NvidiaVendor, AmdVendor, GpuVendorInterface};
 use std::process::Command;
@@ -12,7 +12,7 @@ mod mock_tests {
 
     #[test]
     fn test_list_operation_parsing() {
-        let cli = Cli::parse_from(&["gpukill", "--list"]);
+        let cli = Cli::parse_from(["gpukill", "--list"]);
         assert!(cli.list);
         assert!(!cli.details);
         assert!(!cli.watch);
@@ -21,7 +21,7 @@ mod mock_tests {
 
     #[test]
     fn test_list_with_details_and_watch() {
-        let cli = Cli::parse_from(&["gpukill", "--list", "--details", "--watch"]);
+        let cli = Cli::parse_from(["gpukill", "--list", "--details", "--watch"]);
         assert!(cli.list);
         assert!(cli.details);
         assert!(cli.watch);
@@ -30,14 +30,14 @@ mod mock_tests {
 
     #[test]
     fn test_list_json_output() {
-        let cli = Cli::parse_from(&["gpukill", "--list", "--output", "json"]);
+        let cli = Cli::parse_from(["gpukill", "--list", "--output", "json"]);
         assert!(cli.list);
         assert!(matches!(cli.output, OutputFormat::Json));
     }
 
     #[test]
     fn test_kill_operation() {
-        let cli = Cli::parse_from(&["gpukill", "--kill", "--pid", "12345"]);
+        let cli = Cli::parse_from(["gpukill", "--kill", "--pid", "12345"]);
         assert!(cli.kill);
         assert_eq!(cli.pid, Some(12345));
         assert_eq!(cli.timeout_secs, 5);
@@ -46,7 +46,7 @@ mod mock_tests {
 
     #[test]
     fn test_kill_with_custom_timeout_and_force() {
-        let cli = Cli::parse_from(&["gpukill", "--kill", "--pid", "12345", "--timeout-secs", "10", "--force"]);
+        let cli = Cli::parse_from(["gpukill", "--kill", "--pid", "12345", "--timeout-secs", "10", "--force"]);
         assert!(cli.kill);
         assert_eq!(cli.pid, Some(12345));
         assert_eq!(cli.timeout_secs, 10);
@@ -55,7 +55,7 @@ mod mock_tests {
 
     #[test]
     fn test_reset_single_gpu() {
-        let cli = Cli::parse_from(&["gpukill", "--reset", "--gpu", "0"]);
+        let cli = Cli::parse_from(["gpukill", "--reset", "--gpu", "0"]);
         assert!(cli.reset);
         assert_eq!(cli.gpu, Some(0));
         assert!(!cli.all);
@@ -63,7 +63,7 @@ mod mock_tests {
 
     #[test]
     fn test_reset_all_gpus() {
-        let cli = Cli::parse_from(&["gpukill", "--reset", "--all"]);
+        let cli = Cli::parse_from(["gpukill", "--reset", "--all"]);
         assert!(cli.reset);
         assert_eq!(cli.gpu, None);
         assert!(cli.all);
@@ -71,7 +71,7 @@ mod mock_tests {
 
     #[test]
     fn test_reset_with_force() {
-        let cli = Cli::parse_from(&["gpukill", "--reset", "--gpu", "0", "--force"]);
+        let cli = Cli::parse_from(["gpukill", "--reset", "--gpu", "0", "--force"]);
         assert!(cli.reset);
         assert_eq!(cli.gpu, Some(0));
         assert!(!cli.all);
@@ -96,41 +96,41 @@ mod mock_tests {
 
     #[test]
     fn test_global_log_level() {
-        let cli = Cli::parse_from(&["gpukill", "--log-level", "debug", "--list"]);
+        let cli = Cli::parse_from(["gpukill", "--log-level", "debug", "--list"]);
         assert_eq!(cli.log_level.to_string(), "debug");
     }
 
     #[test]
     fn test_global_config() {
-        let cli = Cli::parse_from(&["gpukill", "--config", "/tmp/config.toml", "--list"]);
+        let cli = Cli::parse_from(["gpukill", "--config", "/tmp/config.toml", "--list"]);
         assert_eq!(cli.config, Some("/tmp/config.toml".to_string()));
     }
 
     // New tests for vendor filtering
     #[test]
     fn test_vendor_filter_nvidia() {
-        let cli = Cli::parse_from(&["gpukill", "--list", "--vendor", "nvidia"]);
+        let cli = Cli::parse_from(["gpukill", "--list", "--vendor", "nvidia"]);
         assert!(cli.list);
         assert_eq!(cli.vendor, Some(VendorFilter::Nvidia));
     }
 
     #[test]
     fn test_vendor_filter_amd() {
-        let cli = Cli::parse_from(&["gpukill", "--list", "--vendor", "amd"]);
+        let cli = Cli::parse_from(["gpukill", "--list", "--vendor", "amd"]);
         assert!(cli.list);
         assert_eq!(cli.vendor, Some(VendorFilter::Amd));
     }
 
     #[test]
     fn test_vendor_filter_intel() {
-        let cli = Cli::parse_from(&["gpukill", "--list", "--vendor", "intel"]);
+        let cli = Cli::parse_from(["gpukill", "--list", "--vendor", "intel"]);
         assert!(cli.list);
         assert_eq!(cli.vendor, Some(VendorFilter::Intel));
     }
 
     #[test]
     fn test_vendor_filter_all() {
-        let cli = Cli::parse_from(&["gpukill", "--list", "--vendor", "all"]);
+        let cli = Cli::parse_from(["gpukill", "--list", "--vendor", "all"]);
         assert!(cli.list);
         assert_eq!(cli.vendor, Some(VendorFilter::All));
     }
@@ -138,7 +138,7 @@ mod mock_tests {
     // New tests for process filtering
     #[test]
     fn test_kill_with_filter() {
-        let cli = Cli::parse_from(&["gpukill", "--kill", "--filter", "python.*"]);
+        let cli = Cli::parse_from(["gpukill", "--kill", "--filter", "python.*"]);
         assert!(cli.kill);
         assert_eq!(cli.filter, Some("python.*".to_string()));
         assert_eq!(cli.pid, None);
@@ -146,7 +146,7 @@ mod mock_tests {
 
     #[test]
     fn test_kill_with_filter_and_batch() {
-        let cli = Cli::parse_from(&["gpukill", "--kill", "--filter", "python.*", "--batch"]);
+        let cli = Cli::parse_from(["gpukill", "--kill", "--filter", "python.*", "--batch"]);
         assert!(cli.kill);
         assert_eq!(cli.filter, Some("python.*".to_string()));
         assert!(cli.batch);
@@ -154,7 +154,7 @@ mod mock_tests {
 
     #[test]
     fn test_kill_with_filter_batch_and_force() {
-        let cli = Cli::parse_from(&["gpukill", "--kill", "--filter", "python.*", "--batch", "--force"]);
+        let cli = Cli::parse_from(["gpukill", "--kill", "--filter", "python.*", "--batch", "--force"]);
         assert!(cli.kill);
         assert_eq!(cli.filter, Some("python.*".to_string()));
         assert!(cli.batch);
@@ -164,14 +164,14 @@ mod mock_tests {
     // New tests for container detection
     #[test]
     fn test_list_with_containers() {
-        let cli = Cli::parse_from(&["gpukill", "--list", "--containers"]);
+        let cli = Cli::parse_from(["gpukill", "--list", "--containers"]);
         assert!(cli.list);
         assert!(cli.containers);
     }
 
     #[test]
     fn test_list_with_containers_and_details() {
-        let cli = Cli::parse_from(&["gpukill", "--list", "--containers", "--details"]);
+        let cli = Cli::parse_from(["gpukill", "--list", "--containers", "--details"]);
         assert!(cli.list);
         assert!(cli.containers);
         assert!(cli.details);
@@ -180,7 +180,7 @@ mod mock_tests {
     // New tests for combined operations
     #[test]
     fn test_list_with_vendor_and_containers() {
-        let cli = Cli::parse_from(&["gpukill", "--list", "--vendor", "nvidia", "--containers"]);
+        let cli = Cli::parse_from(["gpukill", "--list", "--vendor", "nvidia", "--containers"]);
         assert!(cli.list);
         assert_eq!(cli.vendor, Some(VendorFilter::Nvidia));
         assert!(cli.containers);
@@ -188,7 +188,7 @@ mod mock_tests {
 
     #[test]
     fn test_list_with_all_new_options() {
-        let cli = Cli::parse_from(&["gpukill", "--list", "--details", "--containers", "--vendor", "all", "--output", "json"]);
+        let cli = Cli::parse_from(["gpukill", "--list", "--details", "--containers", "--vendor", "all", "--output", "json"]);
         assert!(cli.list);
         assert!(cli.details);
         assert!(cli.containers);
@@ -530,7 +530,7 @@ mod integration_tests {
     #[test]
     fn test_version_flag() {
         let output = Command::new("cargo")
-            .args(&["run", "--", "--version"])
+            .args(["run", "--", "--version"])
             .output()
             .expect("Failed to execute command");
 
@@ -542,7 +542,7 @@ mod integration_tests {
     #[test]
     fn test_help_flag() {
         let output = Command::new("cargo")
-            .args(&["run", "--", "--help"])
+            .args(["run", "--", "--help"])
             .output()
             .expect("Failed to execute command");
 
@@ -555,7 +555,7 @@ mod integration_tests {
     #[test]
     fn test_list_help() {
         let output = Command::new("cargo")
-            .args(&["run", "--", "--list", "--help"])
+            .args(["run", "--", "--list", "--help"])
             .output()
             .expect("Failed to execute command");
 
@@ -567,7 +567,7 @@ mod integration_tests {
     #[test]
     fn test_kill_help() {
         let output = Command::new("cargo")
-            .args(&["run", "--", "--kill", "--help"])
+            .args(["run", "--", "--kill", "--help"])
             .output()
             .expect("Failed to execute command");
 
@@ -579,7 +579,7 @@ mod integration_tests {
     #[test]
     fn test_reset_help() {
         let output = Command::new("cargo")
-            .args(&["run", "--", "--reset", "--help"])
+            .args(["run", "--", "--reset", "--help"])
             .output()
             .expect("Failed to execute command");
 
@@ -591,7 +591,7 @@ mod integration_tests {
     #[test]
     fn test_invalid_operation_combination() {
         let output = Command::new("cargo")
-            .args(&["run", "--", "--list", "--kill"])
+            .args(["run", "--", "--list", "--kill"])
             .output()
             .expect("Failed to execute command");
 
@@ -601,7 +601,7 @@ mod integration_tests {
     #[test]
     fn test_missing_required_args() {
         let output = Command::new("cargo")
-            .args(&["run", "--", "--kill"])
+            .args(["run", "--", "--kill"])
             .output()
             .expect("Failed to execute command");
 
@@ -612,7 +612,7 @@ mod integration_tests {
     #[test]
     fn test_kill_with_both_pid_and_filter_fails() {
         let output = Command::new("cargo")
-            .args(&["run", "--", "--kill", "--pid", "12345", "--filter", "python"])
+            .args(["run", "--", "--kill", "--pid", "12345", "--filter", "python"])
             .output()
             .expect("Failed to execute command");
 
@@ -624,7 +624,7 @@ mod integration_tests {
     #[test]
     fn test_kill_without_pid_or_filter_fails() {
         let output = Command::new("cargo")
-            .args(&["run", "--", "--kill"])
+            .args(["run", "--", "--kill"])
             .output()
             .expect("Failed to execute command");
 
@@ -636,7 +636,7 @@ mod integration_tests {
     #[test]
     fn test_batch_without_filter_fails() {
         let output = Command::new("cargo")
-            .args(&["run", "--", "--kill", "--batch"])
+            .args(["run", "--", "--kill", "--batch"])
             .output()
             .expect("Failed to execute command");
 
@@ -648,7 +648,7 @@ mod integration_tests {
     #[test]
     fn test_containers_without_list_fails() {
         let output = Command::new("cargo")
-            .args(&["run", "--", "--containers"])
+            .args(["run", "--", "--containers"])
             .output()
             .expect("Failed to execute command");
 

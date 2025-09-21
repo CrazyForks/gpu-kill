@@ -9,7 +9,7 @@ use tracing::{info, error};
 use crate::nvml_api::GpuProc;
 
 /// Guard Mode policy configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GuardModeConfig {
     /// Global guard mode settings
     pub global: GlobalSettings,
@@ -294,19 +294,7 @@ pub enum ActionType {
     NotificationSent,
 }
 
-impl Default for GuardModeConfig {
-    fn default() -> Self {
-        Self {
-            global: GlobalSettings::default(),
-            user_policies: HashMap::new(),
-            group_policies: HashMap::new(),
-            gpu_policies: HashMap::new(),
-            time_policies: Vec::new(),
-            enforcement: EnforcementSettings::default(),
-            metadata: ConfigMetadata::default(),
-        }
-    }
-}
+// Default implementation is now derived
 
 impl Default for GlobalSettings {
     fn default() -> Self {
@@ -544,7 +532,7 @@ impl GuardModeManager {
         // Group processes by user
         let mut user_processes: HashMap<String, Vec<&GpuProc>> = HashMap::new();
         for process in processes {
-            user_processes.entry(process.user.clone()).or_insert_with(Vec::new).push(process);
+            user_processes.entry(process.user.clone()).or_default().push(process);
         }
 
         // Check each user's processes

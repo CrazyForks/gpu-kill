@@ -70,7 +70,7 @@ impl EnhancedProcessManager {
             pids.push(pid);
             
             // Find child processes
-            for (_, process) in self.system.processes() {
+            for process in self.system.processes().values() {
                 if let Some(parent) = process.parent() {
                     if parent.as_u32() == pid {
                         to_process.push(process.pid().as_u32());

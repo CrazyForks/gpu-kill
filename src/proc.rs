@@ -211,7 +211,7 @@ fn get_process_user(pid: u32) -> Result<String> {
     {
         // On macOS, use ps command
         let output = Command::new("ps")
-            .args(&["-o", "user=", "-p", &pid.to_string()])
+            .args(["-o", "user=", "-p", &pid.to_string()])
             .output()
             .context("Failed to execute ps command")?;
 
@@ -251,7 +251,7 @@ fn get_process_user(pid: u32) -> Result<String> {
 #[cfg(target_os = "linux")]
 fn get_username_from_uid(uid: u32) -> Result<String> {
     use std::ffi::CString;
-    use std::os::unix::ffi::OsStringExt;
+    // use std::os::unix::ffi::OsStringExt; // Unused for now
 
     unsafe {
         let passwd = libc::getpwuid(uid as libc::uid_t);

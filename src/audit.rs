@@ -339,7 +339,7 @@ impl AuditManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nvml_api::{GpuSnapshot, GpuProc};
+    // use crate::nvml_api::{GpuSnapshot, GpuProc}; // Unused for now
 
     #[tokio::test]
     async fn test_audit_manager() {

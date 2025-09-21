@@ -1,7 +1,7 @@
 use crate::args::OutputFormat;
 use crate::nvml_api::Snapshot;
 use crate::util::{format_memory_mb_to_gib, truncate_string};
-use serde_json;
+// serde_json is used via serde_json::to_string_pretty
 use std::io::{self, Write};
 use tabled::{
     settings::{

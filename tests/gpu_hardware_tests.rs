@@ -4,8 +4,7 @@ use std::process::Command;
 
 /// Integration tests that require actual GPU hardware
 /// These tests will be skipped if the required hardware is not available
-
-#[cfg(test)]
+  #[cfg(test)]
 mod nvidia_hardware_tests {
     use super::*;
 
@@ -34,7 +33,7 @@ mod nvidia_hardware_tests {
         let count = vendor.device_count().expect("Failed to get device count");
         
         for i in 0..count {
-            let info = vendor.get_gpu_info(i).expect(&format!("Failed to get info for GPU {}", i));
+            let info = vendor.get_gpu_info(i).unwrap_or_else(|_| panic!("Failed to get info for GPU {}", i));
             assert!(!info.name.is_empty(), "GPU name should not be empty");
             assert!(info.mem_total_mb > 0, "GPU memory should be greater than 0");
             println!("GPU {}: {} ({} MB)", i, info.name, info.mem_total_mb);
@@ -52,7 +51,7 @@ mod nvidia_hardware_tests {
         let count = vendor.device_count().expect("Failed to get device count");
         
         for i in 0..count {
-            let snapshot = vendor.get_gpu_snapshot(i).expect(&format!("Failed to get snapshot for GPU {}", i));
+            let snapshot = vendor.get_gpu_snapshot(i).unwrap_or_else(|_| panic!("Failed to get snapshot for GPU {}", i));
             assert_eq!(snapshot.gpu_index, i as u16);
             assert!(!snapshot.name.is_empty(), "GPU name should not be empty");
             assert!(snapshot.mem_total_mb > 0, "GPU memory should be greater than 0");
@@ -75,7 +74,7 @@ mod nvidia_hardware_tests {
         let count = vendor.device_count().expect("Failed to get device count");
         
         for i in 0..count {
-            let processes = vendor.get_gpu_processes(i).expect(&format!("Failed to get processes for GPU {}", i));
+            let processes = vendor.get_gpu_processes(i).unwrap_or_else(|_| panic!("Failed to get processes for GPU {}", i));
             println!("GPU {} has {} processes", i, processes.len());
             
             for proc in &processes {
@@ -117,7 +116,7 @@ mod amd_hardware_tests {
         let count = vendor.device_count().expect("Failed to get device count");
         
         for i in 0..count {
-            let info = vendor.get_gpu_info(i).expect(&format!("Failed to get info for GPU {}", i));
+            let info = vendor.get_gpu_info(i).unwrap_or_else(|_| panic!("Failed to get info for GPU {}", i));
             assert!(!info.name.is_empty(), "GPU name should not be empty");
             assert!(info.mem_total_mb > 0, "GPU memory should be greater than 0");
             println!("GPU {}: {} ({} MB)", i, info.name, info.mem_total_mb);
@@ -135,7 +134,7 @@ mod amd_hardware_tests {
         let count = vendor.device_count().expect("Failed to get device count");
         
         for i in 0..count {
-            let snapshot = vendor.get_gpu_snapshot(i).expect(&format!("Failed to get snapshot for GPU {}", i));
+            let snapshot = vendor.get_gpu_snapshot(i).unwrap_or_else(|_| panic!("Failed to get snapshot for GPU {}", i));
             assert_eq!(snapshot.gpu_index, i as u16);
             assert!(!snapshot.name.is_empty(), "GPU name should not be empty");
             assert!(snapshot.mem_total_mb > 0, "GPU memory should be greater than 0");
@@ -198,7 +197,7 @@ mod intel_hardware_tests {
         let count = vendor.device_count().expect("Failed to get device count");
         
         for i in 0..count {
-            let info = vendor.get_gpu_info(i).expect(&format!("Failed to get info for GPU {}", i));
+            let info = vendor.get_gpu_info(i).unwrap_or_else(|_| panic!("Failed to get info for GPU {}", i));
             assert!(!info.name.is_empty(), "GPU name should not be empty");
             assert!(info.mem_total_mb > 0, "GPU memory should be greater than 0");
             println!("GPU {}: {} ({} MB)", i, info.name, info.mem_total_mb);
@@ -362,7 +361,7 @@ mod stress_tests {
 
     #[test]
     fn test_concurrent_gpu_access() {
-        let manager = match GpuManager::initialize() {
+        let _manager = match GpuManager::initialize() {
             Ok(manager) => manager,
             Err(_) => {
                 println!("Skipping stress test - no GPUs available");
