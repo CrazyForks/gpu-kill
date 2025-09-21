@@ -598,9 +598,9 @@ mod tests {
         assert!(rules.max_memory_usage_gb > 0.0);
     }
 
-    #[test]
-    fn test_rogue_detector_creation() {
-        let audit_manager = AuditManager::new().unwrap();
+    #[tokio::test]
+    async fn test_rogue_detector_creation() {
+        let audit_manager = AuditManager::new().await.unwrap();
         let detector = RogueDetector::new(audit_manager);
         assert_eq!(detector.detection_rules.min_confidence_threshold, 0.7);
     }

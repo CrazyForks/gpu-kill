@@ -26,14 +26,14 @@ Join our Discord community for discussions, support, and updates:
 
 **Linux (Ubuntu/Debian):**
 ```bash
-sudo apt install libssl-dev
+sudo apt install build-essential libssl-dev pkg-config
 ```
 
 **Linux (Fedora/RHEL/CentOS):**
 ```bash
-sudo dnf install gcc pkg-config openssl-devel
+sudo dnf install gcc gcc-c++ pkg-config openssl-devel
 # or for older systems:
-# sudo yum install gcc pkg-config openssl-devel
+# sudo yum install gcc gcc-c++ pkg-config openssl-devel
 ```
 
 **macOS:**
@@ -214,10 +214,10 @@ gpukill --remote gpu-cluster --reset --gpu 0
 **OpenSSL not found:**
 ```bash
 # Ubuntu/Debian
-sudo apt install libssl-dev
+sudo apt install build-essential libssl-dev pkg-config
 
 # Fedora/RHEL/CentOS
-sudo dnf install openssl-devel
+sudo dnf install gcc gcc-c++ pkg-config openssl-devel
 ```
 
 **Other common build issues:**
@@ -232,10 +232,23 @@ gpukill --help                    # Show all options
 gpukill --version                 # Show version
 ```
 
+## CI/CD and Testing
+
+GPU Kill uses a comprehensive CI/CD pipeline that tests on actual GPU hardware:
+
+- **Multi-vendor GPU testing** on real hardware (NVIDIA, AMD, Intel, Apple Silicon)
+- **Cross-platform compatibility** testing
+- **Performance benchmarking** and profiling
+- **Security auditing** and compliance checks
+- **Stress testing** for reliability validation
+
+See **[CI_CD.md](CI_CD.md)** for detailed information about our testing infrastructure and how to set up self-hosted runners with GPU hardware.
+
 ## Documentation
 
 - **[DETAILED.md](DETAILED.md)** - Complete documentation, API reference, and advanced features
 - **[Dashboard README](dashboard/README.md)** - Web interface documentation
+- **[CI_CD.md](CI_CD.md)** - CI/CD pipeline and testing infrastructure
 
 ## License
 

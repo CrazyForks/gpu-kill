@@ -1,0 +1,316 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUST_BACKTRACE: 1
+  RUST_LOG: info
+
+jobs:
+  # Standard CI tests (no GPU hardware required)
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-13, windows-2022]
+        include:
+          - os: ubuntu-22.04
+            install_deps: |
+              sudo apt-get update
+              sudo apt-get install -y build-essential libssl-dev pkg-config
+          - os: macos-13
+            install_deps: |
+              xcode-select --install || true
+          - os: windows-2022
+            install_deps: |
+              # Windows dependencies handled by vcpkg
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install system dependencies
+        run: ${{ matrix.install_deps }}
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run unit tests
+        run: |
+          cargo test --features mock_nvml
+          cargo test --no-default-features
+
+      - name: Run integration tests
+        run: cargo test --test integration_tests
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run fmt
+        run: cargo fmt --all -- --check
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Test basic functionality
+        run: |
+          ./target/release/gpukill --version
+          ./target/release/gpukill --help
+
+  # GPU hardware tests (requires self-hosted runners)
+  gpu-hardware-tests:
+    name: GPU Hardware Tests (${{ matrix.vendor }})
+    runs-on: [self-hosted, gpu, ${{ matrix.vendor }}]
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        vendor: [nvidia, amd, intel, apple]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.vendor }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Verify GPU hardware
+        run: |
+          case "${{ matrix.vendor }}" in
+            nvidia)
+              nvidia-smi || (echo "NVIDIA GPU not available" && exit 1)
+              ;;
+            amd)
+              rocm-smi || (echo "AMD GPU/ROCm not available" && exit 1)
+              ;;
+            intel)
+              intel_gpu_top --help || (echo "Intel GPU tools not available" && exit 1)
+              ;;
+            apple)
+              system_profiler SPDisplaysDataType | grep -i "chip\|gpu" || (echo "Apple GPU not detected" && exit 1)
+              ;;
+          esac
+
+      - name: Build and test
+        run: |
+          cargo build --release
+          cargo test --features mock_nvml
+          cargo test --test integration_tests
+
+      - name: Run GPU hardware tests
+        run: |
+          cargo test --test gpu_hardware_tests -- --nocapture
+
+      - name: Test CLI functionality
+        run: |
+          ./target/release/gpukill --list --vendor ${{ matrix.vendor }}
+          ./target/release/gpukill --list --details --vendor ${{ matrix.vendor }}
+          ./target/release/gpukill --list --output json --vendor ${{ matrix.vendor }}
+
+      - name: Performance benchmark
+        run: |
+          echo "Benchmarking GPU listing performance..."
+          time ./target/release/gpukill --list --vendor ${{ matrix.vendor }}
+          
+          echo "Benchmarking detailed listing performance..."
+          time ./target/release/gpukill --list --details --vendor ${{ matrix.vendor }}
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: gpu-test-results-${{ matrix.vendor }}
+          path: |
+            target/release/gpukill
+          retention-days: 7
+
+  # Security and compliance
+  security:
+    name: Security Audit
+    runs-on: ubuntu-22.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install security tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev pkg-config
+          cargo install cargo-audit
+          cargo install cargo-deny
+
+      - name: Security audit
+        run: |
+          cargo audit
+          cargo deny check
+
+      - name: Build with security flags
+        run: |
+          RUSTFLAGS="-C target-cpu=native" cargo build --release
+          strip target/release/gpukill
+
+  # Documentation and API tests
+  api-tests:
+    name: API Tests
+    runs-on: ubuntu-22.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev pkg-config
+
+      - name: Test MCP server build
+        run: |
+          cargo build --release -p gpukill-mcp
+
+      - name: Test HTTP server build
+        run: |
+          cargo build --release
+
+      - name: Test dashboard build
+        run: |
+          cd dashboard
+          npm install
+          npm run build
+
+  # Cross-compilation tests
+  cross-compile:
+    name: Cross-Compile (${{ matrix.target }})
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-apple-darwin]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev pkg-config
+          rustup target add ${{ matrix.target }}
+
+      - name: Cross-compile
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+
+  # Stress testing (only on main branch)
+  stress-tests:
+    name: Stress Tests
+    runs-on: [self-hosted, gpu, stress-test]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release version
+        run: cargo build --release
+
+      - name: Stress test GPU listing
+        run: |
+          echo "Running stress test - 100 iterations"
+          for i in {1..100}; do
+            echo "Iteration $i"
+            ./target/release/gpukill --list --details
+            sleep 0.1
+          done
+
+      - name: Concurrent access test
+        run: |
+          echo "Testing concurrent access"
+          for i in {1..10}; do
+            ./target/release/gpukill --list --output json &
+          done
+          wait
+
+      - name: Long-running test
+        run: |
+          echo "Testing long-running operations"
+          timeout 60 ./target/release/gpukill --list --watch || true
+
+  # Memory and performance profiling
+  profile:
+    name: Performance Profile
+    runs-on: [self-hosted, gpu, nvidia]
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install profiling tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev pkg-config valgrind
+
+      - name: Build with debug info
+        run: |
+          cargo build --release
+          strip --strip-debug target/release/gpukill
+
+      - name: Memory profiling
+        run: |
+          valgrind --tool=massif --massif-out-file=massif.out ./target/release/gpukill --list
+          valgrind --leak-check=full --show-leak-kinds=all ./target/release/gpukill --list
+
+      - name: Upload profiling results
+        uses: actions/upload-artifact@v3
+        with:
+          name: profiling-results
+          path: |
+            massif.out
+          retention-days: 30

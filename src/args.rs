@@ -304,7 +304,7 @@ pub enum LogLevel {
     Error,
 }
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
 pub enum VendorFilter {
     Nvidia,
     Amd,

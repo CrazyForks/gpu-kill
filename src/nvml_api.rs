@@ -338,6 +338,7 @@ mod tests {
         let snapshot = GpuSnapshot {
             gpu_index: 0,
             name: "Test GPU".to_string(),
+            vendor: crate::vendor::GpuVendor::Unknown,
             mem_used_mb: 4096,
             mem_total_mb: 8192,
             util_pct: 50.0,
