@@ -292,7 +292,6 @@ jobs:
       matrix:
         target: 
           - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
           - x86_64-pc-windows-gnu
     
     steps:
@@ -317,10 +316,6 @@ jobs:
           # Install additional tools for specific targets
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then
             sudo apt-get install -y gcc-mingw-w64-x86-64
-          elif [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            # Install ARM64 cross-compilation tools
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-            # Note: cargo-cross Docker images handle OpenSSL dependencies
           fi
           
           # Debug: Check OpenSSL installation
@@ -338,10 +333,6 @@ jobs:
           if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
             echo "Using regular cargo for native target"
             cargo build --release --target ${{ matrix.target }}
-          elif [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            echo "Using cross for ARM64 cross-compilation"
-            # Let cargo-cross Docker image handle OpenSSL dependencies
-            cross build --release --target ${{ matrix.target }}
           else
             echo "Using cross for Windows cross-compilation"
             # Set environment variables for Windows
