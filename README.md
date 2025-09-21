@@ -254,7 +254,7 @@ gpukill --version                 # Show version
 
 ## CI/CD and Testing
 
-GPU Kill uses a comprehensive CI/CD pipeline with **automatic GPU testing**:
+GPU Kill uses a CI/CD pipeline with **automatic GPU testing**:
 
 - **✅ Conditional GPU testing** - Runs automatically when GPU hardware is available
 - **✅ Multi-vendor GPU testing** on real hardware (NVIDIA, AMD, Intel, Apple Silicon)

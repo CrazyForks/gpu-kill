@@ -1,7 +1,9 @@
 use crate::nvml_api::NvmlApi;
 use crate::util::parse_process_start_time;
 use anyhow::{Context, Result};
+#[cfg(unix)]
 use nix::sys::signal::{kill, Signal};
+#[cfg(unix)]
 use nix::unistd::Pid;
 // use std::process::Command; // Used conditionally below
 use std::time::{Duration, SystemTime};
@@ -66,6 +68,7 @@ impl ProcessManager {
     }
 
     /// Gracefully terminate a process with timeout and escalation
+    #[cfg(unix)]
     pub fn graceful_kill(&self, pid: u32, timeout_secs: u16, force: bool) -> Result<()> {
         let pid = Pid::from_raw(pid as i32);
 
@@ -112,6 +115,14 @@ impl ProcessManager {
                 timeout_secs
             ))
         }
+    }
+
+    /// Gracefully terminate a process with timeout and escalation (Windows stub)
+    #[cfg(windows)]
+    pub fn graceful_kill(&self, pid: u32, timeout_secs: u16, force: bool) -> Result<()> {
+        // On Windows, we can't use Unix signals, so we'll use a different approach
+        // For now, just return an error indicating this feature isn't available on Windows
+        Err(anyhow::anyhow!("Process termination not yet implemented for Windows"))
     }
 
     /// Check if a process is still running
