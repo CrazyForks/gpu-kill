@@ -5,12 +5,14 @@ This tests GPU Kill on actual GPU hardware to ensure reliability across all supp
 ## Overview
 
 Our CI/CD system provides:
-- **Multi-vendor GPU testing** on real hardware (NVIDIA, AMD, Intel, Apple Silicon)
-- **Cross-platform compatibility** testing
-- **Performance benchmarking** and profiling
-- **Security auditing** and compliance checks
-- **Stress testing** for reliability validation
-- **Automated releases** with proper versioning
+- **✅ Conditional GPU testing** - Automatically runs when GPU hardware is available
+- **✅ Multi-vendor GPU testing** on real hardware (NVIDIA, AMD, Intel, Apple Silicon)
+- **✅ Cross-platform compatibility** testing
+- **✅ Performance benchmarking** and profiling
+- **✅ Security auditing** and compliance checks
+- **✅ Stress testing** for reliability validation
+- **✅ Automated releases** with proper versioning
+- **✅ Cloud GPU support** - Easy setup on AWS, GCP, Azure
 
 ## CI/CD Pipeline
 
@@ -26,6 +28,7 @@ Our CI/CD system provides:
 **Test Coverage**:
 - Unit tests with mock NVML
 - Integration tests
+- **GPU hardware tests** (runs when hardware available, skips gracefully otherwise)
 - Code formatting (rustfmt)
 - Linting (clippy)
 - Security auditing (cargo-audit)
@@ -33,7 +36,28 @@ Our CI/CD system provides:
 - Cross-compilation testing (x86_64, ARM64, Windows)
 - Native macOS compilation
 
-### 2. GPU Hardware Tests (`gpu-testing.yml`)
+### 2. Conditional GPU Testing
+
+**How It Works**:
+- **Automatic Detection**: GPU tests run automatically when hardware is available
+- **Graceful Skipping**: Tests skip gracefully when no GPU hardware is found
+- **Universal Compatibility**: Works on any runner (hosted, self-hosted, cloud, local)
+
+**Supported Environments**:
+- **GitHub Hosted Runners**: Tests skip (no GPU hardware available)
+- **Self-Hosted Runners**: Tests run when GPU hardware is detected
+- **Cloud GPU Instances**: Tests run automatically (AWS, GCP, Azure)
+- **Developer Machines**: Tests run when GPU hardware is available
+
+**Test Coverage**:
+- GPU detection and enumeration
+- Performance benchmarking
+- Memory usage profiling
+- Stress testing
+- Concurrent access testing
+- Long-running stability tests
+
+### 3. GPU Hardware Tests (`gpu-testing.yml`)
 
 **Triggers**: Push to main/develop, pull requests, manual dispatch
 
@@ -51,7 +75,7 @@ Our CI/CD system provides:
 - Concurrent access testing
 - Long-running stability tests
 
-### 3. Release Pipeline (`release.yml`)
+### 4. Release Pipeline (`release.yml`)
 
 **Triggers**: Git tags (v*), manual dispatch
 
@@ -61,7 +85,23 @@ Our CI/CD system provides:
 - GitHub releases with changelog
 - Asset distribution via cargo-dist
 
-## Self-Hosted Runners
+## Quick Setup Options
+
+### Option 1: Test Locally (Already Working)
+```bash
+# Your GPU hardware is automatically detected and tested
+cargo test --test gpu_hardware_tests
+```
+
+### Option 2: Cloud GPU Setup (5 minutes)
+```bash
+# On any cloud GPU instance (AWS, GCP, Azure):
+curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
+```
+
+See **[docs/CLOUD_GPU_SETUP.md](docs/CLOUD_GPU_SETUP.md)** for detailed cloud provider setup instructions.
+
+### Option 3: Self-Hosted Runners
 
 ### Hardware Requirements
 
@@ -94,7 +134,14 @@ Our CI/CD system provides:
 
 ### Setup Instructions
 
-See [`.github/workflows/self-hosted-setup.md`](.github/workflows/self-hosted-setup.md) for detailed setup instructions.
+#### Automated Setup (Recommended)
+```bash
+# Run the automated setup script
+curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
+```
+
+#### Manual Setup
+See [`.github/workflows/self-hosted-setup.md`](.github/workflows/self-hosted-setup.md) for detailed manual setup instructions.
 
 ### Runner Labels
 
@@ -140,7 +187,7 @@ Each runner is configured with specific labels:
 ### Local Testing
 
 ```bash
-# Run all tests
+# Run all tests (GPU tests run automatically if hardware available)
 cargo test
 
 # Run with mock NVML (no GPU required)
@@ -149,12 +196,35 @@ cargo test --features mock_nvml
 # Run integration tests
 cargo test --test integration_tests
 
-# Run GPU hardware tests (requires GPU)
+# Run GPU hardware tests (runs automatically if GPU available, skips gracefully otherwise)
 cargo test --test gpu_hardware_tests
 
 # Run specific vendor tests
 cargo test --test gpu_hardware_tests nvidia_hardware_tests
 cargo test --test gpu_hardware_tests amd_hardware_tests
+```
+
+### Conditional GPU Testing
+
+The GPU tests are designed to work automatically:
+
+- **✅ With GPU Hardware**: Tests run automatically and test actual GPU functionality
+- **✅ Without GPU Hardware**: Tests skip gracefully with informative messages
+- **✅ On Any System**: Works on GitHub runners, self-hosted runners, cloud instances, and developer machines
+
+**Example Output**:
+```bash
+# On system with GPU (like your Apple M3 Max):
+cargo test --test gpu_hardware_tests
+# ✅ test_gpu_detection ... ok
+# ✅ test_gpu_performance ... ok
+# ✅ test_gpu_stress ... ok
+
+# On system without GPU (like GitHub hosted runners):
+cargo test --test gpu_hardware_tests
+# ⏭️  test_gpu_detection ... ignored (no GPU hardware detected)
+# ⏭️  test_gpu_performance ... ignored (no GPU hardware detected)
+# ⏭️  test_gpu_stress ... ignored (no GPU hardware detected)
 ```
 
 ### CI Testing
@@ -290,10 +360,45 @@ gh workflow run gpu-testing.yml -f gpu_vendor=amd
    - Verify thread safety
    - Review locking mechanisms
 
+## Cloud GPU Integration
+
+### Supported Cloud Providers
+
+#### AWS EC2 with GPU
+- **Instance Types**: g4dn.xlarge, p3.2xlarge, p4d.xlarge
+- **Setup**: Automated with setup script
+- **Cost**: ~$0.50-3.00/hour (spot instances: 80-90% savings)
+
+#### Google Cloud with GPU
+- **Instance Types**: n1-standard-4 with T4, V100, A100
+- **Setup**: Automated with setup script
+- **Cost**: ~$0.35-2.50/hour (preemptible: 80% savings)
+
+#### Azure with GPU
+- **Instance Types**: Standard_NC6s_v3, Standard_NC12s_v3
+- **Setup**: Automated with setup script
+- **Cost**: ~$0.90-3.50/hour (spot instances: 90% savings)
+
+### Quick Cloud Setup
+```bash
+# 1. Launch GPU instance on your preferred cloud provider
+# 2. Connect via SSH
+# 3. Run automated setup:
+curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
+```
+
+### Cost Optimization
+- **Spot/Preemptible Instances**: 80-90% cost savings
+- **Auto-shutdown**: Prevent runaway costs
+- **Scheduled Testing**: Only run during business hours
+- **Docker Containers**: Efficient resource usage
+
+See **[docs/CLOUD_GPU_SETUP.md](docs/CLOUD_GPU_SETUP.md)** for detailed setup instructions.
+
 ## Future Enhancements
 
 ### Planned Features
-- **GPU Cloud Integration**: AWS/GCP/Azure GPU instances
+- **✅ GPU Cloud Integration**: AWS/GCP/Azure GPU instances (Implemented)
 - **Distributed Testing**: Multi-node GPU clusters
 - **Advanced Profiling**: GPU utilization monitoring
 - **Automated Benchmarking**: Performance regression detection

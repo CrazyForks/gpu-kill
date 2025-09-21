@@ -254,21 +254,47 @@ gpukill --version                 # Show version
 
 ## CI/CD and Testing
 
-GPU Kill uses a comprehensive CI/CD pipeline that tests on actual GPU hardware:
+GPU Kill uses a comprehensive CI/CD pipeline with **automatic GPU testing**:
 
-- **Multi-vendor GPU testing** on real hardware (NVIDIA, AMD, Intel, Apple Silicon)
-- **Cross-platform compatibility** testing
-- **Performance benchmarking** and profiling
-- **Security auditing** and compliance checks
-- **Stress testing** for reliability validation
+- **✅ Conditional GPU testing** - Runs automatically when GPU hardware is available
+- **✅ Multi-vendor GPU testing** on real hardware (NVIDIA, AMD, Intel, Apple Silicon)
+- **✅ Cross-platform compatibility** testing
+- **✅ Performance benchmarking** and profiling
+- **✅ Security auditing** and compliance checks
+- **✅ Stress testing** for reliability validation
 
+### How GPU Testing Works
+
+- **On GitHub hosted runners**: GPU tests skip gracefully (no GPU hardware)
+- **On self-hosted runners**: GPU tests run automatically when GPU hardware is detected
+- **On cloud instances**: GPU tests run automatically when GPU hardware is available
+- **On developer machines**: GPU tests run automatically when GPU hardware is detected
+
+### Quick Setup
+
+**Option 1: Test Locally (Already Working)**
+```bash
+cargo test --test gpu_hardware_tests  # Runs on your GPU hardware
+```
+
+**Option 2: Set Up Cloud GPU (5 minutes)**
+```bash
+# On any cloud GPU instance:
+curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
+```
+
+**Option 3: Self-Hosted Runner**
 See **[CI_CD.md](CI_CD.md)** for detailed information about our testing infrastructure and how to set up self-hosted runners with GPU hardware.
+
+**Option 4: Cloud GPU Setup**
+See **[docs/CLOUD_GPU_SETUP.md](docs/CLOUD_GPU_SETUP.md)** for AWS, GCP, and Azure GPU instance setup.
 
 ## Documentation
 
 - **[DETAILED.md](DETAILED.md)** - Complete documentation, API reference, and advanced features
 - **[Dashboard README](dashboard/README.md)** - Web interface documentation
 - **[CI_CD.md](CI_CD.md)** - CI/CD pipeline and testing infrastructure
+- **[docs/CLOUD_GPU_SETUP.md](docs/CLOUD_GPU_SETUP.md)** - Cloud GPU setup guide (AWS, GCP, Azure)
 
 ## License
 
