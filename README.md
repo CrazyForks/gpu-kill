@@ -22,10 +22,41 @@ Join our Discord community for discussions, support, and updates:
 
 ## Requirements
 
+### System Dependencies
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt update
+sudo apt install build-essential pkg-config libssl-dev
+```
+
+**Linux (Fedora/RHEL/CentOS):**
+```bash
+sudo dnf install gcc pkg-config openssl-devel
+# or for older systems:
+# sudo yum install gcc pkg-config openssl-devel
+```
+
+**macOS:**
+```bash
+# Install Xcode command line tools
+xcode-select --install
+# OpenSSL is included with macOS
+```
+
+**Windows:**
+- Install Visual Studio Build Tools
+- OpenSSL is handled automatically by vcpkg
+
+### GPU Drivers
+
 - **NVIDIA**: NVIDIA drivers installed
 - **AMD**: ROCm drivers installed  
 - **Intel**: intel-gpu-tools package installed
 - **Apple Silicon**: macOS with Apple Silicon (M1/M2/M3/M4)
+
+### Build Requirements
+
 - **OS**: Linux, macOS, or Windows
 - **Rust**: 1.70+ (for building from source)
 
@@ -176,6 +207,28 @@ gpukill --remote prod-gpu-01 --kill --pid 1234
 # Reset GPU on remote server
 gpukill --remote gpu-cluster --reset --gpu 0
 ```
+
+## Troubleshooting
+
+### Build Issues
+
+**OpenSSL not found:**
+```bash
+# Ubuntu/Debian
+sudo apt install libssl-dev pkg-config
+
+# Fedora/RHEL/CentOS
+sudo dnf install openssl-devel pkg-config
+
+# Set environment variables if needed
+export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig
+export OPENSSL_DIR=/usr
+```
+
+**Other common build issues:**
+- Ensure you have the latest Rust toolchain: `rustup update`
+- Clean and rebuild: `cargo clean && cargo build --release`
+- Check system dependencies are installed (see Requirements section)
 
 ## Need Help?
 
