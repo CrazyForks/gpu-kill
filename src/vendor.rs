@@ -225,6 +225,7 @@ impl GpuVendorInterface for AmdVendor {
     }
 
     fn device_count(&self) -> Result<u32> {
+        // Use rocm-smi --showid to get device list
         let output = std::process::Command::new("rocm-smi")
             .args(&["--showid"])
             .output()
@@ -235,13 +236,20 @@ impl GpuVendorInterface for AmdVendor {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let lines: Vec<&str> = stdout.lines().collect();
-        Ok(lines.len() as u32)
+        
+        // Parse the output to count actual devices
+        // rocm-smi --showid outputs device IDs, one per line
+        let device_count = stdout
+            .lines()
+            .filter(|line| !line.trim().is_empty() && !line.starts_with("GPU"))
+            .count();
+            
+        Ok(device_count as u32)
     }
 
     fn get_gpu_info(&self, index: u32) -> Result<GpuInfo> {
         let output = std::process::Command::new("rocm-smi")
-            .args(&["--showproductname", "--id", &index.to_string()])
+            .args(&["--showproductname", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -259,7 +267,7 @@ impl GpuVendorInterface for AmdVendor {
 
         // Get memory info
         let mem_output = std::process::Command::new("rocm-smi")
-            .args(&["--showmeminfo", "vram", "--id", &index.to_string()])
+            .args(&["--showmeminfo", "vram", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -291,7 +299,7 @@ impl GpuVendorInterface for AmdVendor {
 
         // Get utilization
         let util_output = std::process::Command::new("rocm-smi")
-            .args(&["--showuse", "--id", &index.to_string()])
+            .args(&["--showuse", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -312,7 +320,7 @@ impl GpuVendorInterface for AmdVendor {
 
         // Get temperature
         let temp_output = std::process::Command::new("rocm-smi")
-            .args(&["--showtemp", "--id", &index.to_string()])
+            .args(&["--showtemp", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -333,7 +341,7 @@ impl GpuVendorInterface for AmdVendor {
 
         // Get power usage
         let power_output = std::process::Command::new("rocm-smi")
-            .args(&["--showpower", "--id", &index.to_string()])
+            .args(&["--showpower", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -398,7 +406,7 @@ impl GpuVendorInterface for AmdVendor {
 
     fn reset_gpu(&self, index: u32) -> Result<()> {
         let output = std::process::Command::new("rocm-smi")
-            .args(&["--reset", "--id", &index.to_string()])
+            .args(&["--reset", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
