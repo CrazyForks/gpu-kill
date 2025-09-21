@@ -36,7 +36,7 @@ jobs:
               xcode-select --install || true
           - os: windows-2022
             install_deps: |
-              # Windows dependencies handled by vcpkg
+              echo "Windows dependencies handled by vcpkg"
 
     steps:
       - name: Checkout code
