@@ -307,6 +307,9 @@ jobs:
           echo "OPENSSL_DIR: $OPENSSL_DIR"
 
       - name: Cross-compile
+        env:
+          # Disable cross warnings that cause abort
+          CROSS_NO_WARNINGS: 1
         run: |
           # Use cross with Cross.toml configuration
           echo "=== Cross-compiling to ${{ matrix.target }} ==="
