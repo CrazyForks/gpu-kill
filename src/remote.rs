@@ -181,6 +181,7 @@ impl SshRemote {
 pub struct RemoteHostInfo {
     pub hostname: String,
     pub os_info: String,
+    #[allow(dead_code)]
     pub gpu_info: String,
 }
 

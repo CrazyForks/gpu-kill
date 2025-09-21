@@ -405,6 +405,7 @@ impl RogueConfigManager {
     }
 
     /// Reload configuration from file
+    #[allow(dead_code)]
     pub fn reload(&mut self) -> Result<()> {
         self.config = Self::load_config(&self.config_path)?;
         Ok(())
@@ -423,6 +424,7 @@ impl RogueConfigManager {
     }
 
     /// Add a custom pattern
+    #[allow(dead_code)]
     pub fn add_custom_pattern(&mut self, pattern: CustomPattern) -> Result<()> {
         self.config.patterns.custom_patterns.push(pattern);
         self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
@@ -431,6 +433,7 @@ impl RogueConfigManager {
     }
 
     /// Remove a custom pattern by name
+    #[allow(dead_code)]
     pub fn remove_custom_pattern(&mut self, name: &str) -> Result<()> {
         self.config.patterns.custom_patterns.retain(|p| p.name != name);
         self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
@@ -500,6 +503,7 @@ impl RogueConfigManager {
     }
 
     /// Enable/disable detection types
+    #[allow(dead_code)]
     pub fn toggle_detection_type(&mut self, detection_type: &str, enabled: bool) -> Result<()> {
         match detection_type {
             "crypto_miners" => self.config.detection.enabled_detections.crypto_miners = enabled,

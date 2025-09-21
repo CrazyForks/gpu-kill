@@ -26,8 +26,7 @@ Join our Discord community for discussions, support, and updates:
 
 **Linux (Ubuntu/Debian):**
 ```bash
-sudo apt update
-sudo apt install build-essential pkg-config libssl-dev
+sudo apt install libssl-dev
 ```
 
 **Linux (Fedora/RHEL/CentOS):**
@@ -64,7 +63,7 @@ xcode-select --install
 
 ### Install & Run
 ```bash
-# Build from source
+# Build from source (first build may take 2-3 minutes)
 git clone https://github.com/kagehq/gpu-kill.git
 cd gpu-kill
 cargo build --release
@@ -215,14 +214,10 @@ gpukill --remote gpu-cluster --reset --gpu 0
 **OpenSSL not found:**
 ```bash
 # Ubuntu/Debian
-sudo apt install libssl-dev pkg-config
+sudo apt install libssl-dev
 
 # Fedora/RHEL/CentOS
-sudo dnf install openssl-devel pkg-config
-
-# Set environment variables if needed
-export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig
-export OPENSSL_DIR=/usr
+sudo dnf install openssl-devel
 ```
 
 **Other common build issues:**

@@ -140,6 +140,7 @@ impl RogueDetector {
     }
 
     /// Create a new rogue detector with custom rules
+    #[allow(dead_code)]
     pub fn with_rules(audit_manager: AuditManager, rules: DetectionRules) -> Self {
         Self {
             audit_manager,
