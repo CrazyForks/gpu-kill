@@ -1,10 +1,11 @@
 name: GPU Hardware Testing
 
 on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
+  # Disabled - GPU testing is now integrated into main CI workflow
+  # push:
+  #   branches: [main, develop]
+  # pull_request:
+  #   branches: [main]
   workflow_dispatch:
     inputs:
       gpu_vendor:
