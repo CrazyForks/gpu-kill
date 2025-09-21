@@ -3,7 +3,7 @@ use crate::util::parse_process_start_time;
 use anyhow::{Context, Result};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
-use std::process::Command;
+// use std::process::Command; // Used conditionally below
 use std::time::{Duration, SystemTime};
 use sysinfo::{Pid as SysPid, System};
 
@@ -209,6 +209,7 @@ fn get_process_user(pid: u32) -> Result<String> {
 
     #[cfg(target_os = "macos")]
     {
+        use std::process::Command;
         // On macOS, use ps command
         let output = Command::new("ps")
             .args(["-o", "user=", "-p", &pid.to_string()])
@@ -225,6 +226,7 @@ fn get_process_user(pid: u32) -> Result<String> {
 
     #[cfg(target_os = "windows")]
     {
+        use std::process::Command;
         // On Windows, use wmic command
         let output = Command::new("wmic")
             .args(&["process", "where", &format!("ProcessId={}", pid), "get", "ExecutablePath", "/format:value"])

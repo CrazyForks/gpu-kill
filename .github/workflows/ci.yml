@@ -132,25 +132,17 @@ jobs:
           npm install
           npm run build
 
-  # Cross-compilation tests (disabled due to OpenSSL complexity)
-  # 
-  # The issue: libssl-dev:arm64 is not available in standard Ubuntu repos
-  # 
-  # Proper solutions for cross-compilation:
-  # 1. Use cross-compilation Docker images (e.g., messense/rust-musl-cross)
-  # 2. Use cargo-cross with proper OpenSSL setup
-  # 3. Build on target platforms directly (recommended for production)
-  # 4. Use GitHub's matrix strategy with different OS targets
-  #
-  # For now, we test on multiple platforms (Ubuntu, macOS, Windows) instead
-  # which provides better coverage than cross-compilation
+  # Cross-compilation tests using cargo-cross (proper solution)
   cross-compile:
     name: Cross-Compile (${{ matrix.target }})
     runs-on: ubuntu-22.04
-    if: false  # Disabled until proper cross-compilation setup
     strategy:
       matrix:
-        target: [x86_64-unknown-linux-gnu]
+        target: 
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - x86_64-pc-windows-gnu
+          - x86_64-apple-darwin
     
     steps:
       - name: Checkout code
@@ -161,9 +153,29 @@ jobs:
 
       - name: Install cross-compilation tools
         run: |
+          # Install cargo-cross for proper cross-compilation
+          cargo install cross --git https://github.com/cross-rs/cross
+          
+          # Install target-specific tools
+          rustup target add ${{ matrix.target }}
+          
+          # Install system dependencies for cross-compilation
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev pkg-config
-          rustup target add ${{ matrix.target }}
+          
+          # Install additional tools for specific targets
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            sudo apt-get install -y gcc-mingw-w64-x86-64
+          fi
 
       - name: Cross-compile
-        run: cargo build --release --target ${{ matrix.target }}
+        run: |
+          # Use cross for reliable cross-compilation
+          cross build --release --target ${{ matrix.target }}
+          
+          # Verify the binary was created
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            ls -la target/${{ matrix.target }}/release/gpukill.exe
+          else
+            ls -la target/${{ matrix.target }}/release/gpukill
+          fi
