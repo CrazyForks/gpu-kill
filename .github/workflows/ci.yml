@@ -54,11 +54,24 @@ jobs:
         run: |
           echo "=== System Resources ==="
           df -h
-          free -h
           echo "=== CPU Info ==="
-          nproc
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            nproc
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            sysctl -n hw.ncpu
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo %NUMBER_OF_PROCESSORS%
+          fi
           echo "=== Memory Info ==="
-          cat /proc/meminfo | head -5
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            free -h
+            cat /proc/meminfo | head -5
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            vm_stat
+            system_profiler SPHardwareDataType | grep "Memory:"
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            systeminfo | findstr "Total Physical Memory"
+          fi
 
       - name: Cache cargo dependencies
         uses: actions/cache@v3
