@@ -248,9 +248,8 @@ impl GpuVendorInterface for AmdVendor {
             .lines()
             .filter(|line| {
                 let line = line.trim();
-                !line.is_empty() 
-                    && !line.starts_with("GPU")
-                    && !line.starts_with("#")  // Skip comments
+                !line.is_empty() && !line.starts_with("GPU") && !line.starts_with("#")
+                // Skip comments
             })
             .count();
 
@@ -261,7 +260,7 @@ impl GpuVendorInterface for AmdVendor {
             let detailed_output = std::process::Command::new("rocm-smi")
                 .args(["--showproductname"])
                 .output();
-            
+
             if let Ok(detailed) = detailed_output {
                 if detailed.status.success() {
                     let detailed_stdout = String::from_utf8_lossy(&detailed.stdout);
@@ -395,7 +394,9 @@ impl GpuVendorInterface for AmdVendor {
             let power_stdout = String::from_utf8_lossy(&power_output.stdout);
             power_stdout
                 .lines()
-                .find(|line| line.contains("Average Graphics Package Power") || line.contains("Power-Usage"))
+                .find(|line| {
+                    line.contains("Average Graphics Package Power") || line.contains("Power-Usage")
+                })
                 .and_then(|line| {
                     // Try different patterns for ROCm 7.0.0
                     line.split_whitespace()
@@ -406,7 +407,8 @@ impl GpuVendorInterface for AmdVendor {
                             line.split_whitespace()
                                 .find(|s| s.contains("/") && s.ends_with("W"))
                                 .and_then(|s| {
-                                    s.split("/").next()
+                                    s.split("/")
+                                        .next()
                                         .and_then(|part| part.parse::<f32>().ok())
                                 })
                         })
@@ -437,7 +439,8 @@ impl GpuVendorInterface for AmdVendor {
                             line.split_whitespace()
                                 .find(|s| s.contains("/") && s.ends_with("MB"))
                                 .and_then(|s| {
-                                    s.split("/").next()
+                                    s.split("/")
+                                        .next()
                                         .and_then(|part| part.parse::<u32>().ok())
                                 })
                         })
