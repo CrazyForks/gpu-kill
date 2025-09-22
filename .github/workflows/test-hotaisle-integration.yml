@@ -7,6 +7,8 @@ on:
       - 'src/hotaisle_client.rs'
       - 'scripts/run-gpu-tests.sh'
       - 'scripts/test-hotaisle-integration.sh'
+      - 'scripts/test-hotaisle-integration-simple.sh'
+      - '.github/workflows/test-hotaisle-integration.yml'
       - '.github/workflows/hotaisle-gpu-testing.yml'
       - 'docs/HOTAISLE_INTEGRATION.md'
   pull_request:
@@ -15,6 +17,8 @@ on:
       - 'src/hotaisle_client.rs'
       - 'scripts/run-gpu-tests.sh'
       - 'scripts/test-hotaisle-integration.sh'
+      - 'scripts/test-hotaisle-integration-simple.sh'
+      - '.github/workflows/test-hotaisle-integration.yml'
       - '.github/workflows/hotaisle-gpu-testing.yml'
       - 'docs/HOTAISLE_INTEGRATION.md'
   workflow_dispatch:
