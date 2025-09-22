@@ -293,9 +293,11 @@ See **[CI_CD.md](CI_CD.md)** for detailed information about our testing infrastr
 # Build with Hot Aisle feature
 cargo build --release --features hotaisle
 
-# Set up Hot Aisle API key in GitHub Secrets
-# Then trigger GPU tests via GitHub Actions workflow_dispatch
-# Tests run on real GPU hardware with automatic cleanup
+# Integration tests run automatically (no API key required)
+# For actual GPU testing:
+# 1. Set up HOTAISLE_API_KEY in GitHub Secrets
+# 2. Manually trigger "Hot Aisle GPU Testing" workflow
+# 3. Tests run on real GPU hardware with automatic cleanup
 ```
 
 **Option 5: Cloud GPU Setup**

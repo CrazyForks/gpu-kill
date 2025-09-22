@@ -48,6 +48,10 @@ let instance = client.provision_gpu_instance(config).await?;
 
 Comprehensive test script that runs on provisioned instances:
 
+### 3. Integration Test Script (`scripts/test-hotaisle-integration-simple.sh`)
+
+CI-friendly test script that validates the Hot Aisle integration without requiring API access:
+
 - **GPU Detection Tests**: Verify GPU enumeration and information retrieval
 - **Vendor-Specific Tests**: NVIDIA (nvidia-smi), AMD (rocm-smi, amd-smi), Intel (intel_gpu_top)
 - **Performance Tests**: Run GPU hardware tests and benchmarks
@@ -115,14 +119,14 @@ test_duration: "30"  # minutes
 
 ## Usage
 
-### Automatic Testing
+### Integration Testing
 
-GPU tests run automatically on:
-- **Main branch** pushes
-- **Develop branch** pushes
-- **Pull requests** to main branch
+The integration is validated automatically via the "Test Hot Aisle Integration" workflow:
+- **Runs on**: Changes to Hot Aisle-related files
+- **Validates**: Build system, feature flags, documentation, and workflow syntax
+- **No API key required**: Tests the integration structure without actual GPU provisioning
 
-### Manual Testing
+### Manual GPU Testing
 
 Trigger tests manually via GitHub Actions:
 
