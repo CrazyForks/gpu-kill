@@ -251,7 +251,6 @@ impl GpuVendorInterface for AmdVendor {
                 !line.is_empty() 
                     && !line.starts_with("GPU")
                     && !line.starts_with("#")  // Skip comments
-                    && line.len() > 0
             })
             .count();
 
