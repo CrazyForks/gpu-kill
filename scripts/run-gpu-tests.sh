@@ -94,7 +94,7 @@ run_gpu_detection_tests() {
     
     # Test 2: GPU information
     log_info "Testing GPU information retrieval..."
-    if ./target/release/gpukill --list --format=json > /tmp/gpu-info.json 2>&1; then
+    if ./target/release/gpukill --list > /tmp/gpu-info.json 2>&1; then
         local json_valid=$(python3 -m json.tool /tmp/gpu-info.json > /dev/null 2>&1 && echo "true" || echo "false")
         if [[ "$json_valid" == "true" ]]; then
             log_success "GPU information JSON is valid"
@@ -255,10 +255,33 @@ generate_test_report() {
         cat /tmp/gpu-info.json 2>/dev/null || echo "No GPU info available"
         echo ""
         echo "=== System Information ==="
-        echo "CPU: $(lscpu | grep "Model name" | cut -d: -f2 | xargs || echo "Unknown")"
-        echo "Memory: $(free -h | grep "Mem:" | awk '{print $2}' || echo "Unknown")"
+        # CPU info (cross-platform)
+        if command -v lscpu &> /dev/null; then
+            echo "CPU: $(lscpu | grep "Model name" | cut -d: -f2 | xargs || echo "Unknown")"
+        elif command -v sysctl &> /dev/null; then
+            echo "CPU: $(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "Unknown")"
+        else
+            echo "CPU: Unknown"
+        fi
+        
+        # Memory info (cross-platform)
+        if command -v free &> /dev/null; then
+            echo "Memory: $(free -h | grep "Mem:" | awk '{print $2}' || echo "Unknown")"
+        elif command -v vm_stat &> /dev/null; then
+            echo "Memory: $(system_profiler SPHardwareDataType | grep "Memory:" | awk '{print $2, $3}' || echo "Unknown")"
+        else
+            echo "Memory: Unknown"
+        fi
+        
+        # GPU drivers (cross-platform)
         echo "GPU Drivers:"
-        lsmod | grep -E "(nvidia|amdgpu|i915)" || echo "No GPU drivers found"
+        if command -v lsmod &> /dev/null; then
+            lsmod | grep -E "(nvidia|amdgpu|i915)" || echo "No GPU drivers found"
+        elif command -v kextstat &> /dev/null; then
+            kextstat | grep -E "(nvidia|amd|intel)" || echo "No GPU drivers found"
+        else
+            echo "No GPU drivers found"
+        fi
     } > "$report_file"
     
     log_success "Test report generated: $report_file"
