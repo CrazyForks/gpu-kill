@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        gpu_type: ${{ fromJSON(format('["{0}"]', join(split(github.event.inputs.gpu_types || 'nvidia,amd,intel', ','), '","'))) }}
+        gpu_type: [nvidia, amd, intel]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
