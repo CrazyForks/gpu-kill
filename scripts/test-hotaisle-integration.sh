@@ -50,10 +50,9 @@ run_test() {
         log_error "Command that failed: $test_command"
         ((TESTS_FAILED++))
         
-        # In CI, exit immediately on first failure for easier debugging
+        # In CI, continue to show all failures for better debugging
         if [[ "${CI:-false}" == "true" ]]; then
-            log_error "Exiting immediately due to CI environment"
-            exit 1
+            log_error "Continuing to show all failures in CI environment"
         fi
     fi
     echo
