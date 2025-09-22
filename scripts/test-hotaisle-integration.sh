@@ -40,7 +40,8 @@ run_test() {
     
     log_info "Running test: $test_name"
     
-    if eval "$test_command"; then
+    # Use a more robust approach than eval
+    if bash -c "$test_command"; then
         log_success "✅ $test_name passed"
         ((TESTS_PASSED++))
     else
@@ -89,14 +90,14 @@ main() {
     run_test "Conditional Compilation in lib.rs" 'grep -q "#\\[cfg(feature = \"hotaisle\")\\]" src/lib.rs'
     
     # Test 12: Test script prerequisites function (skip on CI to avoid environment issues)
-    if [[ "$CI" == "true" ]]; then
+    if [[ "${CI:-false}" == "true" ]]; then
         log_warning "⚠️  Test Script Prerequisites Function skipped (CI environment)"
     else
         run_test "Test Script Prerequisites Function" 'bash -c "source scripts/run-gpu-tests.sh; check_prerequisites"'
     fi
     
     # Test 13: Test script build function (skip on CI to avoid environment issues)
-    if [[ "$CI" == "true" ]]; then
+    if [[ "${CI:-false}" == "true" ]]; then
         log_warning "⚠️  Test Script Build Function skipped (CI environment)"
     else
         run_test "Test Script Build Function" 'bash -c "source scripts/run-gpu-tests.sh; build_gpukill"'
