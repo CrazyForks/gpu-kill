@@ -1,5 +1,5 @@
 //! Hot Aisle API client for GPU instance provisioning and management
-//! 
+//!
 //! This module provides integration with Hot Aisle's infrastructure
 //! for on-demand GPU testing in CI/CD pipelines.
 
@@ -81,7 +81,7 @@ impl HotAisleClient {
     /// Create a new Hot Aisle client
     pub fn new(api_key: String, base_url: Option<String>) -> Self {
         let base_url = base_url.unwrap_or_else(|| "https://admin.hotaisle.app/api".to_string());
-        
+
         Self {
             api_key,
             base_url,
@@ -92,8 +92,9 @@ impl HotAisleClient {
     /// Provision a new GPU instance
     pub async fn provision_gpu_instance(&self, config: GpuInstanceConfig) -> Result<GpuInstance> {
         let url = format!("{}/instances", self.base_url);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
@@ -116,13 +117,17 @@ impl HotAisleClient {
     }
 
     /// Wait for instance to be ready
-    pub async fn wait_for_instance_ready(&self, instance_id: &str, timeout_minutes: u32) -> Result<GpuInstance> {
+    pub async fn wait_for_instance_ready(
+        &self,
+        instance_id: &str,
+        timeout_minutes: u32,
+    ) -> Result<GpuInstance> {
         let timeout = Duration::from_secs(timeout_minutes as u64 * 60);
         let start = std::time::Instant::now();
-        
+
         while start.elapsed() < timeout {
             let instance = self.get_instance(instance_id).await?;
-            
+
             match instance.status.as_str() {
                 "ready" | "running" => return Ok(instance),
                 "failed" | "error" => {
@@ -134,15 +139,20 @@ impl HotAisleClient {
                 }
             }
         }
-        
-        Err(anyhow::anyhow!("Instance {} did not become ready within {} minutes", instance_id, timeout_minutes))
+
+        Err(anyhow::anyhow!(
+            "Instance {} did not become ready within {} minutes",
+            instance_id,
+            timeout_minutes
+        ))
     }
 
     /// Get instance information
     pub async fn get_instance(&self, instance_id: &str) -> Result<GpuInstance> {
         let url = format!("{}/instances/{}", self.base_url, instance_id);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .get(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .send()
@@ -164,10 +174,15 @@ impl HotAisleClient {
     }
 
     /// Execute GPU tests on an instance
-    pub async fn run_gpu_tests(&self, instance: &GpuInstance, test_config: &GpuTestConfig) -> Result<GpuTestResults> {
+    pub async fn run_gpu_tests(
+        &self,
+        instance: &GpuInstance,
+        test_config: &GpuTestConfig,
+    ) -> Result<GpuTestResults> {
         let url = format!("{}/instances/{}/execute", self.base_url, instance.id);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
@@ -193,8 +208,9 @@ impl HotAisleClient {
     /// Terminate an instance
     pub async fn terminate_instance(&self, instance_id: &str) -> Result<()> {
         let url = format!("{}/instances/{}", self.base_url, instance_id);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .delete(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .send()
@@ -217,8 +233,9 @@ impl HotAisleClient {
     /// List available GPU types
     pub async fn list_available_gpu_types(&self) -> Result<Vec<String>> {
         let url = format!("{}/gpu-types", self.base_url);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .get(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .send()
@@ -270,7 +287,7 @@ mod tests {
             instance_type: Some("g4dn.xlarge".to_string()),
             labels: Some(vec!["ci-test".to_string(), "gpu-kill".to_string()]),
         };
-        
+
         assert_eq!(config.gpu_type, "nvidia");
         assert_eq!(config.duration_minutes, 30);
     }
