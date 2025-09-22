@@ -13,4 +13,6 @@ pub mod rogue_detection;
 pub mod util;
 pub mod vendor;
 pub mod version;
+
+#[cfg(feature = "hotaisle")]
 pub mod hotaisle_client;

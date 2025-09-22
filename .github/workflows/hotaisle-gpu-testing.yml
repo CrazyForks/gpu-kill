@@ -75,7 +75,7 @@ jobs:
 
       - name: Build GPU Kill
         run: |
-          cargo build --release
+          cargo build --release --features hotaisle
           # Verify binary was created
           ls -la target/release/gpukill
 

@@ -101,11 +101,12 @@ impl HotAisleClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
+        let status = response.status();
+        if !status.is_success() {
             let error_text = response.text().await?;
             return Err(anyhow::anyhow!(
                 "Failed to provision GPU instance: {} - {}",
-                response.status(),
+                status,
                 error_text
             ));
         }
@@ -147,12 +148,13 @@ impl HotAisleClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
+        let status = response.status();
+        if !status.is_success() {
             let error_text = response.text().await?;
             return Err(anyhow::anyhow!(
                 "Failed to get instance {}: {} - {}",
                 instance_id,
-                response.status(),
+                status,
                 error_text
             ));
         }
@@ -173,12 +175,13 @@ impl HotAisleClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
+        let status = response.status();
+        if !status.is_success() {
             let error_text = response.text().await?;
             return Err(anyhow::anyhow!(
                 "Failed to run tests on instance {}: {} - {}",
                 instance.id,
-                response.status(),
+                status,
                 error_text
             ));
         }
@@ -197,12 +200,13 @@ impl HotAisleClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
+        let status = response.status();
+        if !status.is_success() {
             let error_text = response.text().await?;
             return Err(anyhow::anyhow!(
                 "Failed to terminate instance {}: {} - {}",
                 instance_id,
-                response.status(),
+                status,
                 error_text
             ));
         }
@@ -220,11 +224,12 @@ impl HotAisleClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
+        let status = response.status();
+        if !status.is_success() {
             let error_text = response.text().await?;
             return Err(anyhow::anyhow!(
                 "Failed to list GPU types: {} - {}",
-                response.status(),
+                status,
                 error_text
             ));
         }

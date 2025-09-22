@@ -1,6 +1,8 @@
 # Hot Aisle Integration for GPU Testing
 
-This document describes the integration between GPU Kill and Hot Aisle's infrastructure for automated GPU testing in CI/CD pipelines.
+This document describes the **optional** integration between GPU Kill and Hot Aisle's infrastructure for automated GPU testing in CI/CD pipelines.
+
+> **Note**: Hot Aisle integration is an optional feature that must be enabled with the `hotaisle` feature flag.
 
 ## Overview
 
@@ -64,7 +66,19 @@ Automated CI/CD pipeline that:
 
 ## Setup Instructions
 
-### 1. Hot Aisle API Key
+### 1. Enable Hot Aisle Feature
+
+Build GPU Kill with the Hot Aisle feature enabled:
+
+```bash
+# Build with Hot Aisle integration
+cargo build --release --features hotaisle
+
+# Or install with Hot Aisle integration
+cargo install --path . --features hotaisle
+```
+
+### 2. Hot Aisle API Key
 
 Add your Hot Aisle API key to GitHub Secrets:
 
@@ -75,7 +89,7 @@ Add your Hot Aisle API key to GitHub Secrets:
 # Value: your-hotaisle-api-key
 ```
 
-### 2. Configure GPU Types
+### 3. Configure GPU Types
 
 The workflow supports testing multiple GPU types:
 
@@ -89,7 +103,7 @@ matrix:
 # gpu_types: "nvidia,amd,intel,apple-silicon"
 ```
 
-### 3. Test Duration
+### 4. Test Duration
 
 Configure test duration to balance thoroughness with cost:
 

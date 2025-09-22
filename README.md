@@ -258,7 +258,7 @@ GPU Kill uses a CI/CD pipeline with **automatic GPU testing**:
 
 - **✅ Conditional GPU testing** - Runs automatically when GPU hardware is available
 - **✅ Multi-vendor GPU testing** on real hardware (NVIDIA, AMD, Intel, Apple Silicon)
-- **✅ Hot Aisle integration** - On-demand GPU instance provisioning for comprehensive testing
+- **✅ Hot Aisle integration** - Optional on-demand GPU instance provisioning for comprehensive testing
 - **✅ Cross-platform compatibility** testing
 - **✅ Performance benchmarking** and profiling
 - **✅ Security auditing** and compliance checks
@@ -288,8 +288,11 @@ curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-g
 **Option 3: Self-Hosted Runner**
 See **[CI_CD.md](CI_CD.md)** for detailed information about our testing infrastructure and how to set up self-hosted runners with GPU hardware.
 
-**Option 4: Hot Aisle Integration (Recommended)**
+**Option 4: Hot Aisle Integration (Optional)**
 ```bash
+# Build with Hot Aisle feature
+cargo build --release --features hotaisle
+
 # Set up Hot Aisle API key in GitHub Secrets
 # Then trigger GPU tests via GitHub Actions workflow_dispatch
 # Tests run on real GPU hardware with automatic cleanup

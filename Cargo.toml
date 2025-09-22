@@ -66,6 +66,7 @@ mockall = "0.12"
 [features]
 default = []
 mock_nvml = []
+hotaisle = []
 
 [profile.release]
 # Optimized for faster builds during development
