@@ -39,6 +39,7 @@ run_test() {
     local test_command="$2"
     
     log_info "Running test: $test_name"
+    log_info "Command: $test_command"
     
     # Use a more robust approach than eval
     if bash -c "$test_command"; then
@@ -46,7 +47,14 @@ run_test() {
         ((TESTS_PASSED++))
     else
         log_error "❌ $test_name failed"
+        log_error "Command that failed: $test_command"
         ((TESTS_FAILED++))
+        
+        # In CI, exit immediately on first failure for easier debugging
+        if [[ "${CI:-false}" == "true" ]]; then
+            log_error "Exiting immediately due to CI environment"
+            exit 1
+        fi
     fi
     echo
 }
@@ -55,6 +63,14 @@ run_test() {
 main() {
     log_info "Starting Hot Aisle Integration Tests"
     echo "========================================"
+    
+    # Debug information
+    log_info "Environment:"
+    log_info "  CI: ${CI:-false}"
+    log_info "  PWD: $(pwd)"
+    log_info "  USER: ${USER:-unknown}"
+    log_info "  PATH: $PATH"
+    echo
     
     # Test 1: Check if we're in the right directory
     run_test "Project Root Check" '[[ -f "Cargo.toml" ]]'
