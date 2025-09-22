@@ -258,6 +258,7 @@ GPU Kill uses a CI/CD pipeline with **automatic GPU testing**:
 
 - **✅ Conditional GPU testing** - Runs automatically when GPU hardware is available
 - **✅ Multi-vendor GPU testing** on real hardware (NVIDIA, AMD, Intel, Apple Silicon)
+- **✅ Hot Aisle integration** - On-demand GPU instance provisioning for comprehensive testing
 - **✅ Cross-platform compatibility** testing
 - **✅ Performance benchmarking** and profiling
 - **✅ Security auditing** and compliance checks
@@ -269,6 +270,7 @@ GPU Kill uses a CI/CD pipeline with **automatic GPU testing**:
 - **On self-hosted runners**: GPU tests run automatically when GPU hardware is detected
 - **On cloud instances**: GPU tests run automatically when GPU hardware is available
 - **On developer machines**: GPU tests run automatically when GPU hardware is detected
+- **Via Hot Aisle**: On-demand GPU instance provisioning for comprehensive testing
 
 ### Quick Setup
 
@@ -286,7 +288,14 @@ curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-g
 **Option 3: Self-Hosted Runner**
 See **[CI_CD.md](CI_CD.md)** for detailed information about our testing infrastructure and how to set up self-hosted runners with GPU hardware.
 
-**Option 4: Cloud GPU Setup**
+**Option 4: Hot Aisle Integration (Recommended)**
+```bash
+# Set up Hot Aisle API key in GitHub Secrets
+# Then trigger GPU tests via GitHub Actions workflow_dispatch
+# Tests run on real GPU hardware with automatic cleanup
+```
+
+**Option 5: Cloud GPU Setup**
 See **[docs/CLOUD_GPU_SETUP.md](docs/CLOUD_GPU_SETUP.md)** for AWS, GCP, and Azure GPU instance setup.
 
 ## Documentation
@@ -294,6 +303,7 @@ See **[docs/CLOUD_GPU_SETUP.md](docs/CLOUD_GPU_SETUP.md)** for AWS, GCP, and Azu
 - **[DETAILED.md](DETAILED.md)** - Complete documentation, API reference, and advanced features
 - **[Dashboard README](dashboard/README.md)** - Web interface documentation
 - **[CI_CD.md](CI_CD.md)** - CI/CD pipeline and testing infrastructure
+- **[docs/HOTAISLE_INTEGRATION.md](docs/HOTAISLE_INTEGRATION.md)** - Hot Aisle integration guide
 - **[docs/CLOUD_GPU_SETUP.md](docs/CLOUD_GPU_SETUP.md)** - Cloud GPU setup guide (AWS, GCP, Azure)
 
 ## License

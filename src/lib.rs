@@ -13,3 +13,4 @@ pub mod rogue_detection;
 pub mod util;
 pub mod vendor;
 pub mod version;
+pub mod hotaisle_client;
