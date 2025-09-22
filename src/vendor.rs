@@ -242,11 +242,37 @@ impl GpuVendorInterface for AmdVendor {
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         // Parse the output to count actual devices
+        // For MI300X VF, we need to filter out virtual functions
         // rocm-smi --showid outputs device IDs, one per line
         let device_count = stdout
             .lines()
-            .filter(|line| !line.trim().is_empty() && !line.starts_with("GPU"))
+            .filter(|line| {
+                let line = line.trim();
+                !line.is_empty() 
+                    && !line.starts_with("GPU")
+                    && !line.starts_with("#")  // Skip comments
+                    && line.len() > 0
+            })
             .count();
+
+        // For MI300X VF, if we detect multiple devices but they're all virtual functions,
+        // we should only count the physical device
+        if device_count > 1 {
+            // Try to get more detailed info to distinguish physical vs virtual
+            let detailed_output = std::process::Command::new("rocm-smi")
+                .args(["--showproductname"])
+                .output();
+            
+            if let Ok(detailed) = detailed_output {
+                if detailed.status.success() {
+                    let detailed_stdout = String::from_utf8_lossy(&detailed.stdout);
+                    // If we see "MI300X VF" in the output, it's likely virtual functions
+                    if detailed_stdout.contains("MI300X VF") {
+                        return Ok(1); // Only count the physical device
+                    }
+                }
+            }
+        }
 
         Ok(device_count as u32)
     }
@@ -314,11 +340,18 @@ impl GpuVendorInterface for AmdVendor {
             let util_stdout = String::from_utf8_lossy(&util_output.stdout);
             util_stdout
                 .lines()
-                .find(|line| line.contains("GPU use"))
+                .find(|line| line.contains("GPU use") || line.contains("GFX-Uti"))
                 .and_then(|line| {
+                    // Try different patterns for ROCm 7.0.0
                     line.split_whitespace()
                         .find(|s| s.ends_with("%"))
                         .and_then(|s| s.replace("%", "").parse::<f32>().ok())
+                        .or_else(|| {
+                            // Alternative parsing for different output formats
+                            line.split_whitespace()
+                                .find(|s| s.chars().all(|c| c.is_numeric() || c == '.'))
+                                .and_then(|s| s.parse::<f32>().ok())
+                        })
                 })
                 .unwrap_or(0.0)
         } else {
@@ -335,11 +368,18 @@ impl GpuVendorInterface for AmdVendor {
             let temp_stdout = String::from_utf8_lossy(&temp_output.stdout);
             temp_stdout
                 .lines()
-                .find(|line| line.contains("Temperature"))
+                .find(|line| line.contains("Temperature") || line.contains("Temp"))
                 .and_then(|line| {
+                    // Try different patterns for ROCm 7.0.0
                     line.split_whitespace()
-                        .find(|s| s.ends_with("C"))
-                        .and_then(|s| s.replace("C", "").parse::<i32>().ok())
+                        .find(|s| s.ends_with("C") || s.ends_with("°C"))
+                        .and_then(|s| s.replace("C", "").replace("°", "").parse::<i32>().ok())
+                        .or_else(|| {
+                            // Alternative parsing for different output formats
+                            line.split_whitespace()
+                                .find(|s| s.chars().all(|c| c.is_numeric()))
+                                .and_then(|s| s.parse::<i32>().ok())
+                        })
                 })
                 .unwrap_or(0)
         } else {
@@ -356,11 +396,21 @@ impl GpuVendorInterface for AmdVendor {
             let power_stdout = String::from_utf8_lossy(&power_output.stdout);
             power_stdout
                 .lines()
-                .find(|line| line.contains("Average Graphics Package Power"))
+                .find(|line| line.contains("Average Graphics Package Power") || line.contains("Power-Usage"))
                 .and_then(|line| {
+                    // Try different patterns for ROCm 7.0.0
                     line.split_whitespace()
                         .find(|s| s.ends_with("W"))
                         .and_then(|s| s.replace("W", "").parse::<f32>().ok())
+                        .or_else(|| {
+                            // Alternative parsing for "134/750 W" format
+                            line.split_whitespace()
+                                .find(|s| s.contains("/") && s.ends_with("W"))
+                                .and_then(|s| {
+                                    s.split("/").next()
+                                        .and_then(|part| part.parse::<f32>().ok())
+                                })
+                        })
                 })
                 .unwrap_or(0.0)
         } else {
@@ -369,7 +419,7 @@ impl GpuVendorInterface for AmdVendor {
 
         // Get memory usage
         let mem_output = std::process::Command::new("rocm-smi")
-            .args(["--showmemuse", "--id", &index.to_string()])
+            .args(["--showmemuse", "-d", &index.to_string()])
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
 
@@ -377,11 +427,21 @@ impl GpuVendorInterface for AmdVendor {
             let mem_stdout = String::from_utf8_lossy(&mem_output.stdout);
             mem_stdout
                 .lines()
-                .find(|line| line.contains("GPU memory use"))
+                .find(|line| line.contains("GPU memory use") || line.contains("Mem-Usage"))
                 .and_then(|line| {
+                    // Try different patterns for ROCm 7.0.0
                     line.split_whitespace()
                         .find(|s| s.ends_with("MB"))
                         .and_then(|s| s.replace("MB", "").parse::<u32>().ok())
+                        .or_else(|| {
+                            // Alternative parsing for "285/196288 MB" format
+                            line.split_whitespace()
+                                .find(|s| s.contains("/") && s.ends_with("MB"))
+                                .and_then(|s| {
+                                    s.split("/").next()
+                                        .and_then(|part| part.parse::<u32>().ok())
+                                })
+                        })
                 })
                 .unwrap_or(0)
         } else {
