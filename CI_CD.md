@@ -33,7 +33,7 @@ Our CI/CD system provides:
 - Linting (clippy)
 - Security auditing (cargo-audit)
 - Multi-platform testing (Ubuntu, macOS, Windows)
-- Cross-compilation testing (x86_64, ARM64, Windows)
+- Cross-compilation testing (x86_64, Windows)
 - Native macOS compilation
 
 ### 2. Conditional GPU Testing
