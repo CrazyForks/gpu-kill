@@ -1,0 +1,283 @@
+name: Hot Aisle GPU Testing
+
+on:
+  # Only run on manual dispatch until Hot Aisle API key is configured
+  # push:
+  #   branches: [main, develop]
+  # pull_request:
+  #   branches: [main]
+  workflow_dispatch:
+    inputs:
+      gpu_types:
+        description: 'Comma-separated GPU types to test (nvidia,amd,intel,apple-silicon)'
+        required: false
+        default: 'nvidia,amd,intel'
+      test_duration:
+        description: 'Test duration in minutes'
+        required: false
+        default: '30'
+
+permissions:
+  contents: read
+
+env:
+  RUST_BACKTRACE: 1
+  RUST_LOG: info
+
+jobs:
+  # Pre-flight checks
+  preflight:
+    name: Pre-flight Checks
+    runs-on: ubuntu-latest
+    outputs:
+      should_run_gpu_tests: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check if GPU tests should run
+        id: check
+        run: |
+          # Check if Hot Aisle API key is available
+          if [[ -z "${{ secrets.HOTAISLE_API_KEY }}" ]]; then
+            echo "⚠️  Hot Aisle API key not configured. Please set HOTAISLE_API_KEY secret."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "reason=no_api_key" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Only run GPU tests on main branch, develop branch, or manual dispatch
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Hot Aisle GPU Testing
+  gpu-testing:
+    name: GPU Testing (${{ matrix.gpu_type }})
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.should_run_gpu_tests == 'true'
+    timeout-minutes: 60  # Allow time for instance provisioning and testing
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu_type: ${{ fromJSON(format('["{0}"]', join('","', split(github.event.inputs.gpu_types || 'nvidia,amd,intel', ',')))) }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev pkg-config curl jq
+
+      - name: Build GPU Kill
+        run: |
+          cargo build --release --features hotaisle
+          # Verify binary was created
+          ls -la target/release/gpukill
+
+      - name: Provision Hot Aisle GPU Instance
+        id: provision
+        env:
+          HOTAISLE_API_KEY: ${{ secrets.HOTAISLE_API_KEY }}
+        run: |
+          echo "Provisioning ${{ matrix.gpu_type }} GPU instance..."
+          
+          # Create instance configuration
+          cat > instance-config.json << EOF
+          {
+            "gpu_type": "${{ matrix.gpu_type }}",
+            "duration_minutes": ${{ github.event.inputs.test_duration || '30' }},
+            "instance_type": "auto",
+            "labels": ["ci-test", "gpu-kill", "${{ matrix.gpu_type }}"]
+          }
+          EOF
+          
+          # Provision instance via Hot Aisle API
+          RESPONSE=$(curl -s -X POST "https://admin.hotaisle.app/api/instances" \
+            -H "Authorization: Bearer $HOTAISLE_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d @instance-config.json)
+          
+          # Extract instance ID
+          INSTANCE_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+          if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "null" ]]; then
+            echo "Failed to provision instance. Response: $RESPONSE"
+            exit 1
+          fi
+          
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+          echo "Provisioned instance: $INSTANCE_ID"
+
+      - name: Wait for Instance Ready
+        id: wait
+        env:
+          HOTAISLE_API_KEY: ${{ secrets.HOTAISLE_API_KEY }}
+        run: |
+          INSTANCE_ID="${{ steps.provision.outputs.instance_id }}"
+          echo "Waiting for instance $INSTANCE_ID to be ready..."
+          
+          # Wait up to 10 minutes for instance to be ready
+          for i in {1..60}; do
+            RESPONSE=$(curl -s -X GET "https://admin.hotaisle.app/api/instances/$INSTANCE_ID" \
+              -H "Authorization: Bearer $HOTAISLE_API_KEY")
+            
+            STATUS=$(echo "$RESPONSE" | jq -r '.status // "unknown"')
+            IP_ADDRESS=$(echo "$RESPONSE" | jq -r '.ip_address // empty')
+            
+            echo "Attempt $i/60: Status=$STATUS, IP=$IP_ADDRESS"
+            
+            if [[ "$STATUS" == "ready" || "$STATUS" == "running" ]]; then
+              if [[ -n "$IP_ADDRESS" && "$IP_ADDRESS" != "null" ]]; then
+                echo "instance_ip=$IP_ADDRESS" >> $GITHUB_OUTPUT
+                echo "Instance is ready at $IP_ADDRESS"
+                break
+              fi
+            elif [[ "$STATUS" == "failed" || "$STATUS" == "error" ]]; then
+              echo "Instance failed to start. Status: $STATUS"
+              exit 1
+            fi
+            
+            if [[ $i -eq 60 ]]; then
+              echo "Instance did not become ready within 10 minutes"
+              exit 1
+            fi
+            
+            sleep 10
+          done
+
+      - name: Setup SSH Connection
+        id: ssh
+        run: |
+          # Generate SSH key pair for this test
+          ssh-keygen -t ed25519 -f ~/.ssh/gpu_test_key -N "" -C "gpu-kill-test"
+          
+          # Add to SSH agent
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/gpu_test_key
+          
+          # Create SSH config
+          cat > ~/.ssh/config << EOF
+          Host gpu-test-instance
+            HostName ${{ steps.wait.outputs.instance_ip }}
+            User ubuntu
+            Port 22
+            IdentityFile ~/.ssh/gpu_test_key
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+          EOF
+          
+          echo "SSH configuration created"
+
+      - name: Deploy and Run GPU Tests
+        id: test
+        env:
+          HOTAISLE_API_KEY: ${{ secrets.HOTAISLE_API_KEY }}
+        run: |
+          INSTANCE_ID="${{ steps.provision.outputs.instance_id }}"
+          INSTANCE_IP="${{ steps.wait.outputs.instance_ip }}"
+          
+          echo "Deploying GPU Kill to instance $INSTANCE_IP..."
+          
+          # Copy project to instance
+          rsync -avz --delete \
+            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            --exclude='target/' \
+            --exclude='.git/' \
+            ./ ubuntu@$INSTANCE_IP:~/gpu-kill/
+          
+          # Copy built binary
+          scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            target/release/gpukill ubuntu@$INSTANCE_IP:~/gpu-kill/target/release/
+          
+          # Copy test script
+          scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            scripts/run-gpu-tests.sh ubuntu@$INSTANCE_IP:~/gpu-kill/scripts/
+          
+          # Make script executable
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ubuntu@$INSTANCE_IP "chmod +x ~/gpu-kill/scripts/run-gpu-tests.sh"
+          
+          # Run GPU tests
+          echo "Running GPU tests on ${{ matrix.gpu_type }} instance..."
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ubuntu@$INSTANCE_IP "cd ~/gpu-kill && ./scripts/run-gpu-tests.sh ${{ matrix.gpu_type }}" > test-output.log 2>&1
+          
+          # Copy test results back
+          scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ubuntu@$INSTANCE_IP:~/gpu-kill/tmp/gpu-kill-test-report-*.txt ./test-report.txt || true
+          
+          # Display test output
+          echo "=== GPU Test Output ==="
+          cat test-output.log
+          
+          # Check if tests passed
+          if grep -q "All GPU Kill tests completed successfully" test-output.log; then
+            echo "test_status=passed" >> $GITHUB_OUTPUT
+          else
+            echo "test_status=failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-test-results-${{ matrix.gpu_type }}
+          path: |
+            test-output.log
+            test-report.txt
+          retention-days: 30
+
+      - name: Cleanup Hot Aisle Instance
+        if: always()
+        env:
+          HOTAISLE_API_KEY: ${{ secrets.HOTAISLE_API_KEY }}
+        run: |
+          INSTANCE_ID="${{ steps.provision.outputs.instance_id }}"
+          echo "Cleaning up instance $INSTANCE_ID..."
+          
+          # Terminate instance
+          curl -s -X DELETE "https://admin.hotaisle.app/api/instances/$INSTANCE_ID" \
+            -H "Authorization: Bearer $HOTAISLE_API_KEY" || true
+          
+          echo "Instance cleanup initiated"
+
+      - name: Test Results Summary
+        if: always()
+        run: |
+          echo "=== GPU Testing Summary ==="
+          echo "GPU Type: ${{ matrix.gpu_type }}"
+          echo "Instance ID: ${{ steps.provision.outputs.instance_id }}"
+          echo "Test Status: ${{ steps.test.outputs.test_status || 'unknown' }}"
+          
+          if [[ "${{ steps.test.outputs.test_status }}" == "passed" ]]; then
+            echo "✅ GPU tests passed for ${{ matrix.gpu_type }}"
+          else
+            echo "❌ GPU tests failed for ${{ matrix.gpu_type }}"
+            exit 1
+          fi
+
+  # Summary job
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [preflight, gpu-testing]
+    if: always() && needs.preflight.outputs.should_run_gpu_tests == 'true'
+    steps:
+      - name: Test Results Summary
+        run: |
+          echo "=== Hot Aisle GPU Testing Complete ==="
+          echo "All GPU tests have been executed on real hardware via Hot Aisle infrastructure."
+          echo "Check individual job results for detailed test reports."
