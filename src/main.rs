@@ -120,11 +120,13 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
             cli.force,
             cli.filter,
             cli.batch,
+            cli.gpu,
+            cli.dry_run,
             gpu_manager,
             config_manager,
         )
     } else if cli.reset {
-        execute_reset_operation(cli.gpu, cli.all, cli.force, gpu_manager, config_manager)
+        execute_reset_operation(cli.gpu, cli.all, cli.force, cli.dry_run, gpu_manager, config_manager)
     } else if cli.audit {
         execute_audit_operation(
             cli.audit_user.clone(),
@@ -137,7 +139,29 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
         )
         .await
     } else if cli.server {
-        execute_server_operation(cli.server_host, cli.server_port, gpu_manager).await
+        execute_server_operation(cli.server_host.clone(), cli.server_port, gpu_manager).await?;
+        // Optionally open browser
+        if cli.open {
+            #[cfg(target_os = "macos")]
+            {
+                let _ = std::process::Command::new("open")
+                    .arg(format!("http://localhost:{}", 3000))
+                    .status();
+            }
+            #[cfg(target_os = "linux")]
+            {
+                let _ = std::process::Command::new("xdg-open")
+                    .arg(format!("http://localhost:{}", 3000))
+                    .status();
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("cmd")
+                    .args(["/C", "start", "", "http://localhost:3000"]) 
+                    .status();
+            }
+        }
+        Ok(())
     } else if cli.guard {
         execute_guard_operation(&cli, gpu_manager).await
     } else if let Some(coordinator_url) = cli.register_node {
@@ -286,13 +310,31 @@ fn execute_kill_operation(
     force: bool,
     filter: Option<String>,
     batch: bool,
+    gpu_id: Option<u16>,
+    dry_run: bool,
     gpu_manager: GpuManager,
     _config_manager: crate::config::ConfigManager,
 ) -> Result<()> {
     // Initialize process manager for enhanced operations
-    let nvml_api = NvmlApi::new().context(
-        "Failed to initialize NVML. Ensure NVIDIA drivers are installed and GPU is accessible.",
-    )?;
+    let nvml_api = match NvmlApi::new() {
+        Ok(api) => api,
+        Err(e) => {
+            // Friendlier error when non-NVIDIA vendors are present
+            let available_vendors = gpu_manager.get_vendors();
+            if !available_vendors.is_empty()
+                && !available_vendors.iter().any(|v| *v == crate::vendor::GpuVendor::Nvidia)
+            {
+                return Err(anyhow::anyhow!(
+                    "Kill operations currently require NVIDIA/NVML. Detected vendors: {:?}. Use --list/watch/audit, or run on a NVIDIA node.",
+                    available_vendors
+                ));
+            }
+            return Err(anyhow::anyhow!(
+                "Failed to initialize NVML. Ensure NVIDIA drivers are installed and GPU is accessible. ({})",
+                e
+            ));
+        }
+    };
     let proc_manager = ProcessManager::new(nvml_api);
     let mut enhanced_manager = EnhancedProcessManager::new(proc_manager);
 
@@ -318,7 +360,20 @@ fn execute_kill_operation(
 
         if batch {
             let killed_pids =
-                enhanced_manager.batch_kill_processes(&filtered_processes, timeout_secs, force)?;
+                if dry_run {
+                    // Preview only
+                    render_info("Dry-run: would kill the following processes:");
+                    for p in &filtered_processes {
+                        render_info(&format!(
+                            "  PID {}: {} ({}) - {} MB",
+                            p.pid, p.proc_name, p.user, p.used_mem_mb
+                        ));
+                    }
+                    Vec::new()
+                } else {
+                    enhanced_manager
+                        .batch_kill_processes(&filtered_processes, timeout_secs, force)?
+                };
             render_success(&format!(
                 "Successfully killed {} processes: {:?}",
                 killed_pids.len(),
@@ -350,15 +405,66 @@ fn execute_kill_operation(
             target_pid, process_info.user, process_info.name
         ));
 
-        // Perform graceful kill
-        enhanced_manager
-            .process_manager
-            .graceful_kill(target_pid, timeout_secs, force)?;
+        if dry_run {
+            render_info(&format!(
+                "Dry-run: would terminate process {} (timeout {}s, force: {})",
+                target_pid, timeout_secs, force
+            ));
+        } else {
+            // Perform graceful kill
+            enhanced_manager
+                .process_manager
+                .graceful_kill(target_pid, timeout_secs, force)?;
+            render_success(&format!("Process {} terminated successfully", target_pid));
+        }
+    } else if let Some(target_gpu) = gpu_id {
+        // Kill all processes on a specific GPU
+        let all_processes = gpu_manager.get_all_processes()?;
+        let gpu_processes: Vec<_> = all_processes
+            .into_iter()
+            .filter(|p| p.gpu_index == target_gpu)
+            .collect();
 
-        render_success(&format!("Process {} terminated successfully", target_pid));
+        if gpu_processes.is_empty() {
+            render_warning(&format!("No processes found on GPU {}", target_gpu));
+            return Ok(());
+        }
+
+        render_info(&format!(
+            "Found {} processes on GPU {}",
+            gpu_processes.len(), target_gpu
+        ));
+
+        if dry_run {
+            render_info("Dry-run: would kill the following processes:");
+            for p in &gpu_processes {
+                render_info(&format!(
+                    "  PID {}: {} ({}) - {} MB",
+                    p.pid, p.proc_name, p.user, p.used_mem_mb
+                ));
+            }
+            return Ok(());
+        }
+
+        if !batch {
+            render_warning("Use --batch to confirm killing all processes on this GPU");
+            for p in &gpu_processes {
+                render_info(&format!(
+                    "  PID {}: {} ({}) - {} MB",
+                    p.pid, p.proc_name, p.user, p.used_mem_mb
+                ));
+            }
+            return Ok(());
+        }
+
+        let killed_pids = enhanced_manager.batch_kill_processes(&gpu_processes, timeout_secs, force)?;
+        render_success(&format!(
+            "Successfully killed {} processes on GPU {}: {:?}",
+            killed_pids.len(), target_gpu, killed_pids
+        ));
     } else {
         return Err(anyhow::anyhow!(
-            "Either --pid or --filter must be specified"
+            "Either --pid, --filter, or --gpu must be specified"
         ));
     }
 
@@ -370,27 +476,33 @@ fn execute_reset_operation(
     gpu: Option<u16>,
     all: bool,
     force: bool,
+    dry_run: bool,
     gpu_manager: GpuManager,
     _config_manager: crate::config::ConfigManager,
 ) -> Result<()> {
     if all {
-        execute_reset_all_gpus(&gpu_manager, force)
+        execute_reset_all_gpus(&gpu_manager, force, dry_run)
     } else if let Some(gpu_id) = gpu {
-        execute_reset_single_gpu(&gpu_manager, gpu_id, force)
+        execute_reset_single_gpu(&gpu_manager, gpu_id, force, dry_run)
     } else {
         Err(anyhow::anyhow!("No GPU specified for reset operation"))
     }
 }
 
 /// Execute reset for all GPUs
-fn execute_reset_all_gpus(gpu_manager: &GpuManager, force: bool) -> Result<()> {
+fn execute_reset_all_gpus(gpu_manager: &GpuManager, force: bool, dry_run: bool) -> Result<()> {
     let device_count = gpu_manager.total_device_count()?;
 
     if device_count == 0 {
         return Err(anyhow::anyhow!("No GPUs found"));
     }
 
-    render_info(&format!("Resetting all {} GPUs", device_count));
+    if dry_run {
+        render_info(&format!("Dry-run: would reset all {} GPUs", device_count));
+        return Ok(());
+    } else {
+        render_info(&format!("Resetting all {} GPUs", device_count));
+    }
 
     // Check for active processes if not forcing
     if !force {
@@ -426,7 +538,7 @@ fn execute_reset_all_gpus(gpu_manager: &GpuManager, force: bool) -> Result<()> {
 }
 
 /// Execute reset for a single GPU
-fn execute_reset_single_gpu(gpu_manager: &GpuManager, gpu_id: u16, force: bool) -> Result<()> {
+fn execute_reset_single_gpu(gpu_manager: &GpuManager, gpu_id: u16, force: bool, dry_run: bool) -> Result<()> {
     let device_count = gpu_manager.total_device_count()?;
 
     if gpu_id as u32 >= device_count {
@@ -437,7 +549,12 @@ fn execute_reset_single_gpu(gpu_manager: &GpuManager, gpu_id: u16, force: bool) 
         ));
     }
 
-    render_info(&format!("Resetting GPU {}", gpu_id));
+    if dry_run {
+        render_info(&format!("Dry-run: would reset GPU {}", gpu_id));
+        return Ok(());
+    } else {
+        render_info(&format!("Resetting GPU {}", gpu_id));
+    }
 
     // Check for active processes on this GPU if not forcing
     if !force {
@@ -1003,6 +1120,10 @@ async fn execute_remote_operation(cli: Cli, remote_host: &str) -> Result<()> {
             remote_args.push("--filter".to_string());
             remote_args.push(filter.clone());
         }
+        if let Some(gpu_id) = cli.gpu {
+            remote_args.push("--gpu".to_string());
+            remote_args.push(gpu_id.to_string());
+        }
         if cli.batch {
             remote_args.push("--batch".to_string());
         }
@@ -1053,6 +1174,11 @@ async fn execute_remote_operation(cli: Cli, remote_host: &str) -> Result<()> {
         crate::args::OutputFormat::Table => {
             // Table is default, no need to specify
         }
+    }
+
+    // Propagate dry-run/safe
+    if cli.dry_run {
+        remote_args.push("--dry-run".to_string());
     }
 
     // Add vendor filter if specified

@@ -1695,11 +1695,17 @@ The dashboard provides a comprehensive interface for Guard Mode management:
 ### Building
 
 ```bash
-# Debug build
+# Debug build (fastest, ~3 seconds)
 cargo build
 
-# Release build
+# Fast release build (recommended for development, ~28 seconds)
+cargo build --profile release-fast
+
+# Standard release build (production-ready, ~28 seconds)
 cargo build --release
+
+# Maximum optimization (slowest, best performance, ~60+ seconds)
+cargo build --profile release-max
 
 # Run tests
 cargo test
@@ -1707,6 +1713,20 @@ cargo test
 # Run with logging
 RUST_LOG=debug cargo run -- --list
 ```
+
+### Build Performance Optimization
+
+The project includes multiple build profiles optimized for different use cases:
+
+- **`dev`**: Fast debug builds for development
+- **`release-fast`**: Optimized for development with good performance
+- **`release`**: Balanced optimization for production use
+- **`release-max`**: Maximum optimization for final releases
+
+**Performance improvements made:**
+- Changed from fat LTO (`lto = true`) to thin LTO (`lto = "thin"`)
+- Increased codegen units from 1 to 4 for parallel compilation
+- Added fast release profile for development workflows
 
 ### Testing
 

@@ -18,6 +18,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub config: Option<String>,
 
+    /// Dry-run mode: preview actions without making changes
+    #[arg(long, alias = "safe", global = true)]
+    pub dry_run: bool,
+
     /// List GPUs and their current status
     #[arg(long)]
     pub list: bool,
@@ -37,6 +41,10 @@ pub struct Cli {
     /// Start coordinator server for cluster management
     #[arg(long)]
     pub server: bool,
+
+    /// Open browser to dashboard (works with --server and alias 'up')
+    #[arg(long, requires = "server", global = true)]
+    pub open: bool,
 
     /// Show detailed per-process information
     #[arg(long)]
@@ -355,7 +363,93 @@ impl std::fmt::Display for OutputFormat {
 impl Cli {
     /// Parse command line arguments with validation
     pub fn parse() -> Self {
-        let cli = Self::parse_from(std::env::args());
+        // Pre-process argv to support friendly shorthands before clap parsing
+        let mut argv: Vec<String> = std::env::args().collect();
+
+        // Positional PID alias: `gpukill <pid> [global flags]` => `gpukill --kill --pid <pid> [global flags]`
+        // Only apply if no explicit operation flag is present
+        let has_operation_flag = argv.iter().any(|a| {
+            matches!(a.as_str(), "--list" | "--kill" | "--reset" | "--audit" | "--server" | "--guard")
+        });
+        if !has_operation_flag {
+            if let Some((pos_idx, pid_token)) = argv
+                .iter()
+                .enumerate()
+                .skip(1)
+                .find_map(|(i, t)| {
+                    if !t.starts_with('-') && t.chars().all(|c| c.is_ascii_digit()) {
+                        Some((i, t.clone()))
+                    } else {
+                        None
+                    }
+                })
+            {
+                let mut new_argv = Vec::with_capacity(argv.len() + 2);
+                new_argv.push(argv[0].clone());
+                new_argv.push("--kill".to_string());
+                new_argv.push("--pid".to_string());
+                new_argv.push(pid_token);
+                // push the rest excluding the positional pid we consumed
+                for (i, t) in argv.into_iter().enumerate().skip(1) {
+                    if i == pos_idx { continue; }
+                    new_argv.push(t);
+                }
+                argv = new_argv;
+            }
+        }
+
+        // Reset shorthand: `gpukill --reset <id>` => `gpukill --reset --gpu <id>`
+        if let Some(pos) = argv.iter().position(|a| a == "--reset") {
+            if pos + 1 < argv.len() {
+                let next = &argv[pos + 1];
+                if !next.starts_with('-') && next.chars().all(|c| c.is_ascii_digit()) {
+                    // Insert --gpu before the numeric id if --gpu isn't already specified
+                    // Avoid duplicating if user already passed --gpu
+                    let has_gpu_flag = argv.iter().any(|a| a == "--gpu");
+                    if !has_gpu_flag {
+                        argv.insert(pos + 1, "--gpu".to_string());
+                    }
+                }
+            }
+        }
+
+        // Alias: `gpukill watch` => `gpukill --list --watch`
+        // Only if no explicit operation flag is present
+        let has_operation_flag = argv.iter().any(|a| {
+            matches!(a.as_str(), "--list" | "--kill" | "--reset" | "--audit" | "--server" | "--guard")
+        });
+        if !has_operation_flag {
+            if let Some(pos) = argv.iter().position(|a| a == "watch") {
+                let mut new_argv = Vec::with_capacity(argv.len() + 2);
+                new_argv.push(argv[0].clone());
+                new_argv.push("--list".to_string());
+                new_argv.push("--watch".to_string());
+                for (i, t) in argv.into_iter().enumerate().skip(1) {
+                    if i == pos { continue; }
+                    new_argv.push(t);
+                }
+                argv = new_argv;
+            }
+        }
+
+        // Alias: `gpukill up [--open]` => `gpukill --server [--open]`
+        let has_operation_flag2 = argv.iter().any(|a| {
+            matches!(a.as_str(), "--list" | "--kill" | "--reset" | "--audit" | "--server" | "--guard")
+        });
+        if !has_operation_flag2 {
+            if let Some(pos) = argv.iter().position(|a| a == "up") {
+                let mut new_argv = Vec::with_capacity(argv.len() + 1);
+                new_argv.push(argv[0].clone());
+                new_argv.push("--server".to_string());
+                for (i, t) in argv.into_iter().enumerate().skip(1) {
+                    if i == pos { continue; }
+                    new_argv.push(t);
+                }
+                argv = new_argv;
+            }
+        }
+
+        let cli = Self::parse_from(argv);
         cli.validate();
         cli
     }
@@ -390,8 +484,9 @@ impl Cli {
                 std::process::exit(3);
             }
 
-            if self.pid.is_none() && self.filter.is_none() {
-                eprintln!("Error: --kill requires either --pid <PID> or --filter <PATTERN>");
+            // Allow one of: --pid, --filter, or --gpu (kill-by-GPU)
+            if self.pid.is_none() && self.filter.is_none() && self.gpu.is_none() {
+                eprintln!("Error: --kill requires one of --pid <PID>, --filter <PATTERN>, or --gpu <ID>");
                 std::process::exit(3);
             }
 
@@ -438,7 +533,16 @@ impl Cli {
                 std::process::exit(3);
             }
             if self.batch && self.filter.is_none() {
-                eprintln!("Error: --batch requires --filter");
+                // Allow batch with either filter or gpu (kill-by-GPU)
+                if self.gpu.is_none() {
+                    eprintln!("Error: --batch requires --filter or --gpu");
+                    std::process::exit(3);
+                }
+            }
+
+            // Prevent ambiguous use of --all with --kill
+            if self.all {
+                eprintln!("Error: --all is only valid with --reset");
                 std::process::exit(3);
             }
         }

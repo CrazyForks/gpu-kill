@@ -91,6 +91,12 @@ cargo build --release
 # Or install via Cargo
 cargo install gpukill
 
+# Or one-liner installers (recommended)
+# macOS/Linux
+curl -fsSL https://raw.githubusercontent.com/kagehq/gpu-kill/refs/heads/main/scripts/install.sh | sh
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/kagehq/gpu-kill/refs/heads/main/scripts/install.ps1 | iex
+
 # List your GPUs
 gpukill --list
 
@@ -98,16 +104,26 @@ gpukill --list
 gpukill --list --watch
 ```
 
-### Common Tasks
+### Dead-simple cheatsheet
 ```bash
-# Kill a stuck process
-gpukill --kill --pid 12345 --force
+# Live watch (alias)
+gpukill watch            # = gpukill --list --watch
 
-# Reset a crashed GPU
-gpukill --reset --gpu 0 --force
+# Kill job by PID (positional alias)
+gpukill 12345            # = gpukill --kill --pid 12345
 
-# Start the web dashboard (backend only)
-gpukill --server --server-port 8080
+# Free a specific GPU index (kill all jobs on GPU 0)
+gpukill --kill --gpu 0   # add --batch to actually kill; preview without it
+
+# Force reset a GPU (shorthand)
+gpukill --reset 0        # = gpukill --reset --gpu 0
+
+# Safe mode: dry-run first (no changes)
+gpukill 12345 --safe     # alias: --dry-run
+
+# Bring up the backend API (and optionally open dashboard)
+gpukill up               # = gpukill --server --server-port 8080
+gpukill up --open        # tries to open http://localhost:3000
 ```
 
 ## Dashboard
