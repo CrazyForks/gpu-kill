@@ -369,14 +369,14 @@ impl Cli {
         // Positional PID alias: `gpukill <pid> [global flags]` => `gpukill --kill --pid <pid> [global flags]`
         // Only apply if no explicit operation flag is present
         let has_operation_flag = argv.iter().any(|a| {
-            matches!(a.as_str(), "--list" | "--kill" | "--reset" | "--audit" | "--server" | "--guard")
+            matches!(
+                a.as_str(),
+                "--list" | "--kill" | "--reset" | "--audit" | "--server" | "--guard"
+            )
         });
         if !has_operation_flag {
-            if let Some((pos_idx, pid_token)) = argv
-                .iter()
-                .enumerate()
-                .skip(1)
-                .find_map(|(i, t)| {
+            if let Some((pos_idx, pid_token)) =
+                argv.iter().enumerate().skip(1).find_map(|(i, t)| {
                     if !t.starts_with('-') && t.chars().all(|c| c.is_ascii_digit()) {
                         Some((i, t.clone()))
                     } else {
@@ -391,7 +391,9 @@ impl Cli {
                 new_argv.push(pid_token);
                 // push the rest excluding the positional pid we consumed
                 for (i, t) in argv.into_iter().enumerate().skip(1) {
-                    if i == pos_idx { continue; }
+                    if i == pos_idx {
+                        continue;
+                    }
                     new_argv.push(t);
                 }
                 argv = new_argv;
@@ -416,7 +418,10 @@ impl Cli {
         // Alias: `gpukill watch` => `gpukill --list --watch`
         // Only if no explicit operation flag is present
         let has_operation_flag = argv.iter().any(|a| {
-            matches!(a.as_str(), "--list" | "--kill" | "--reset" | "--audit" | "--server" | "--guard")
+            matches!(
+                a.as_str(),
+                "--list" | "--kill" | "--reset" | "--audit" | "--server" | "--guard"
+            )
         });
         if !has_operation_flag {
             if let Some(pos) = argv.iter().position(|a| a == "watch") {
@@ -425,7 +430,9 @@ impl Cli {
                 new_argv.push("--list".to_string());
                 new_argv.push("--watch".to_string());
                 for (i, t) in argv.into_iter().enumerate().skip(1) {
-                    if i == pos { continue; }
+                    if i == pos {
+                        continue;
+                    }
                     new_argv.push(t);
                 }
                 argv = new_argv;
@@ -434,7 +441,10 @@ impl Cli {
 
         // Alias: `gpukill up [--open]` => `gpukill --server [--open]`
         let has_operation_flag2 = argv.iter().any(|a| {
-            matches!(a.as_str(), "--list" | "--kill" | "--reset" | "--audit" | "--server" | "--guard")
+            matches!(
+                a.as_str(),
+                "--list" | "--kill" | "--reset" | "--audit" | "--server" | "--guard"
+            )
         });
         if !has_operation_flag2 {
             if let Some(pos) = argv.iter().position(|a| a == "up") {
@@ -442,7 +452,9 @@ impl Cli {
                 new_argv.push(argv[0].clone());
                 new_argv.push("--server".to_string());
                 for (i, t) in argv.into_iter().enumerate().skip(1) {
-                    if i == pos { continue; }
+                    if i == pos {
+                        continue;
+                    }
                     new_argv.push(t);
                 }
                 argv = new_argv;

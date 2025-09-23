@@ -126,7 +126,14 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
             config_manager,
         )
     } else if cli.reset {
-        execute_reset_operation(cli.gpu, cli.all, cli.force, cli.dry_run, gpu_manager, config_manager)
+        execute_reset_operation(
+            cli.gpu,
+            cli.all,
+            cli.force,
+            cli.dry_run,
+            gpu_manager,
+            config_manager,
+        )
     } else if cli.audit {
         execute_audit_operation(
             cli.audit_user.clone(),
@@ -157,7 +164,7 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
             #[cfg(target_os = "windows")]
             {
                 let _ = std::process::Command::new("cmd")
-                    .args(["/C", "start", "", "http://localhost:3000"]) 
+                    .args(["/C", "start", "", "http://localhost:3000"])
                     .status();
             }
         }
@@ -360,21 +367,19 @@ fn execute_kill_operation(
         ));
 
         if batch {
-            let killed_pids =
-                if dry_run {
-                    // Preview only
-                    render_info("Dry-run: would kill the following processes:");
-                    for p in &filtered_processes {
-                        render_info(&format!(
-                            "  PID {}: {} ({}) - {} MB",
-                            p.pid, p.proc_name, p.user, p.used_mem_mb
-                        ));
-                    }
-                    Vec::new()
-                } else {
-                    enhanced_manager
-                        .batch_kill_processes(&filtered_processes, timeout_secs, force)?
-                };
+            let killed_pids = if dry_run {
+                // Preview only
+                render_info("Dry-run: would kill the following processes:");
+                for p in &filtered_processes {
+                    render_info(&format!(
+                        "  PID {}: {} ({}) - {} MB",
+                        p.pid, p.proc_name, p.user, p.used_mem_mb
+                    ));
+                }
+                Vec::new()
+            } else {
+                enhanced_manager.batch_kill_processes(&filtered_processes, timeout_secs, force)?
+            };
             render_success(&format!(
                 "Successfully killed {} processes: {:?}",
                 killed_pids.len(),
@@ -433,7 +438,8 @@ fn execute_kill_operation(
 
         render_info(&format!(
             "Found {} processes on GPU {}",
-            gpu_processes.len(), target_gpu
+            gpu_processes.len(),
+            target_gpu
         ));
 
         if dry_run {
@@ -458,10 +464,13 @@ fn execute_kill_operation(
             return Ok(());
         }
 
-        let killed_pids = enhanced_manager.batch_kill_processes(&gpu_processes, timeout_secs, force)?;
+        let killed_pids =
+            enhanced_manager.batch_kill_processes(&gpu_processes, timeout_secs, force)?;
         render_success(&format!(
             "Successfully killed {} processes on GPU {}: {:?}",
-            killed_pids.len(), target_gpu, killed_pids
+            killed_pids.len(),
+            target_gpu,
+            killed_pids
         ));
     } else {
         return Err(anyhow::anyhow!(
@@ -539,7 +548,12 @@ fn execute_reset_all_gpus(gpu_manager: &GpuManager, force: bool, dry_run: bool) 
 }
 
 /// Execute reset for a single GPU
-fn execute_reset_single_gpu(gpu_manager: &GpuManager, gpu_id: u16, force: bool, dry_run: bool) -> Result<()> {
+fn execute_reset_single_gpu(
+    gpu_manager: &GpuManager,
+    gpu_id: u16,
+    force: bool,
+    dry_run: bool,
+) -> Result<()> {
     let device_count = gpu_manager.total_device_count()?;
 
     if gpu_id as u32 >= device_count {
