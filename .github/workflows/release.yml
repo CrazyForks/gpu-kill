@@ -4,9 +4,18 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v0.1.1)'
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+env:
+  TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
 
 jobs:
   build-linux-x86_64:
@@ -23,11 +32,11 @@ jobs:
       - name: Prepare artifact
         run: |
           mkdir -p dist
-          cp target/x86_64-unknown-linux-musl/release/gpukill dist/gpukill-${{ github.ref_name }}-linux-x86_64
+          cp target/x86_64-unknown-linux-musl/release/gpukill dist/gpukill-${{ env.TAG }}-linux-x86_64
       - uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
-          path: dist/gpukill-${{ github.ref_name }}-linux-x86_64
+          path: dist/gpukill-${{ env.TAG }}-linux-x86_64
 
   build-macos-arm64:
     runs-on: macos-14
@@ -39,11 +48,11 @@ jobs:
       - name: Prepare artifact
         run: |
           mkdir -p dist
-          cp target/release/gpukill dist/gpukill-${{ github.ref_name }}-macos-aarch64
+          cp target/release/gpukill dist/gpukill-${{ env.TAG }}-macos-aarch64
       - uses: actions/upload-artifact@v4
         with:
           name: macos-aarch64
-          path: dist/gpukill-${{ github.ref_name }}-macos-aarch64
+          path: dist/gpukill-${{ env.TAG }}-macos-aarch64
 
   build-windows-x86_64:
     runs-on: windows-latest
@@ -57,11 +66,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item target/release/gpukill.exe dist/gpukill.exe
-          Compress-Archive -Path dist/gpukill.exe -DestinationPath dist/gpukill-${{ github.ref_name }}-windows-x86_64.zip -Force
+          Compress-Archive -Path dist/gpukill.exe -DestinationPath dist/gpukill-${{ env.TAG }}-windows-x86_64.zip -Force
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x86_64
-          path: dist/gpukill-${{ github.ref_name }}-windows-x86_64.zip
+          path: dist/gpukill-${{ env.TAG }}-windows-x86_64.zip
 
   release:
     runs-on: ubuntu-latest
@@ -80,7 +89,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ env.TAG }}
           files: |
             upload/*
         env:
