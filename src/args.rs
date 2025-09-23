@@ -486,7 +486,10 @@ impl Cli {
 
             // Allow one of: --pid, --filter, or --gpu (kill-by-GPU)
             if self.pid.is_none() && self.filter.is_none() && self.gpu.is_none() {
-                eprintln!("Error: --kill requires one of --pid <PID>, --filter <PATTERN>, or --gpu <ID>");
+                // Keep legacy substring for compatibility with tests and tooling, while documenting --gpu
+                eprintln!(
+                    "Error: --kill requires either --pid <PID> or --filter <PATTERN> (or --gpu <ID>)"
+                );
                 std::process::exit(3);
             }
 
