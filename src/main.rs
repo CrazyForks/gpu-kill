@@ -304,6 +304,7 @@ async fn execute_watch_mode(
 }
 
 /// Execute kill operation
+#[allow(clippy::too_many_arguments)]
 fn execute_kill_operation(
     pid: Option<u32>,
     timeout_secs: u16,
@@ -322,7 +323,7 @@ fn execute_kill_operation(
             // Friendlier error when non-NVIDIA vendors are present
             let available_vendors = gpu_manager.get_vendors();
             if !available_vendors.is_empty()
-                && !available_vendors.iter().any(|v| *v == crate::vendor::GpuVendor::Nvidia)
+                && !available_vendors.contains(&crate::vendor::GpuVendor::Nvidia)
             {
                 return Err(anyhow::anyhow!(
                     "Kill operations currently require NVIDIA/NVML. Detected vendors: {:?}. Use --list/watch/audit, or run on a NVIDIA node.",
