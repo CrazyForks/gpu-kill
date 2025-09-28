@@ -36,7 +36,7 @@ $Tag = $resp.tag_name
 if (-not $Tag) { throw "Failed to resolve release tag" }
 
 $arch = Get-Arch
-$assetName = "$Repo-$Tag-windows-$arch.zip"
+$assetName = "gpukill-$Tag-windows-$arch.zip"
 $asset = $resp.assets | Where-Object { $_.name -eq $assetName }
 if (-not $asset) { throw "No asset named $assetName in release $Tag" }
 

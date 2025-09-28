@@ -78,10 +78,10 @@ if [ -z "$TAG" ]; then
 fi
 
 case "$OS-$ARCH" in
-  linux-x86_64) ASSET="$REPO_NAME-$TAG-linux-x86_64" ;;
-  linux-aarch64) ASSET="$REPO_NAME-$TAG-linux-aarch64" ;;
-  macos-x86_64) ASSET="$REPO_NAME-$TAG-macos-x86_64" ;;
-  macos-aarch64) ASSET="$REPO_NAME-$TAG-macos-aarch64" ;;
+  linux-x86_64) ASSET="gpukill-$TAG-linux-x86_64" ;;
+  linux-aarch64) ASSET="gpukill-$TAG-linux-aarch64" ;;
+  macos-x86_64) ASSET="gpukill-$TAG-macos-x86_64" ;;
+  macos-aarch64) ASSET="gpukill-$TAG-macos-aarch64" ;;
 esac
 
 URL_BASE="https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/$TAG"
