@@ -145,7 +145,7 @@ open http://localhost:3000
 
 **Note**: You need both the backend server (port 8080) and frontend UI (port 3000) running for the dashboard to work.
 
-![GPU Kill Dashboard](dashboard/public/screenshot.png)
+![GPU Kill Dashboard](screenshot.png)
 
 The dashboard provides:
 - **Real-time monitoring** of all GPUs
