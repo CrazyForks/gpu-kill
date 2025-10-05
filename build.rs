@@ -17,7 +17,9 @@ fn main() {
         .unwrap_or_else(|| "unknown".to_string());
 
     // Get build timestamp
-    let build_date = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
+    let build_date = chrono::Utc::now()
+        .format("%Y-%m-%d %H:%M:%S UTC")
+        .to_string();
 
     // Get build target
     let build_target = std::env::var("TARGET").unwrap_or_else(|_| "unknown".to_string());
@@ -28,4 +30,3 @@ fn main() {
     println!("cargo:rustc-env=BUILD_DATE={}", build_date);
     println!("cargo:rustc-env=BUILD_TARGET={}", build_target);
 }
-
