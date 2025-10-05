@@ -2,10 +2,10 @@
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Build information
-pub const BUILD_DATE: &str = "unknown";
-pub const BUILD_TARGET: &str = "unknown";
+pub const BUILD_DATE: &str = env!("BUILD_DATE");
+pub const BUILD_TARGET: &str = env!("BUILD_TARGET");
 #[allow(dead_code)]
-pub const GIT_COMMIT: &str = "unknown";
+pub const GIT_COMMIT: &str = env!("GIT_COMMIT");
 
 /// Get formatted version string
 pub fn get_version_string() -> String {

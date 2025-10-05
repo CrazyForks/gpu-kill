@@ -38,9 +38,7 @@ GPU Kill is built with Rust and supports NVIDIA, AMD, Intel, and Apple Silicon G
 - **Renderer**: Formats output as tables or JSON
 - **Configuration**: Supports file and environment-based configuration
 - **Coordinator API**: RESTful API server for cluster management
-- **WebSocket Server**: Real-time updates for dashboard clients
 - **SSH Remote Manager**: Secure remote GPU management via SSH
-- **Dashboard Frontend**: Nuxt.js web interface for cluster monitoring
 - **MCP Server**: Model Context Protocol server for AI assistant integration
 
 ### Dependencies
@@ -293,7 +291,6 @@ gpukill --server [OPTIONS]
 Starts the GPU Kill coordinator server that provides:
 - RESTful API for cluster management
 - WebSocket server for real-time updates
-- Dashboard web interface (accessible at http://localhost:3000)
 - Node registration and heartbeat management
 - Magic Moment contention analysis
 
@@ -592,28 +589,6 @@ gpukill --audit --rogue-export-config > security-config.json
 gpukill --audit --rogue-import-config security-config.json
 ```
 
-### Dashboard
-
-The suspicious usage detection is fully integrated with the dashboard:
-
-**Rogue Activity Panel:**
-- Real-time risk score visualization
-- Color-coded threat indicators
-- Detailed threat breakdown
-- Interactive "Scan for Threats" button
-
-**Threat Visualization:**
-- **Crypto Miners**: Red alerts with confidence scores
-- **Suspicious Processes**: Yellow warnings with risk levels
-- **Resource Abusers**: Orange notifications with severity
-- **All Clear**: Green confirmation when no threats detected
-
-**Recommendations:**
-- Actionable security advice
-- Process termination suggestions
-- Configuration recommendations
-- Best practice guidance
-
 **JSON Output:**
 ```bash
 # Export audit data as JSON for external processing
@@ -622,6 +597,15 @@ gpukill --audit --output json
 # Export filtered data
 gpukill --audit --audit-user john --output json > john_gpu_usage.json
 ```
+
+
+### Dashboard
+
+The suspicious usage detection is fully integrated with the dashboard:
+
+Check the [Kill Suite](https://kagehq.com) website
+
+
 
 ### Audit Data Structure
 
@@ -819,57 +803,7 @@ gpukill --remote server --audit --audit-summary
 
 The GPU Kill dashboard is a modern web interface built with Nuxt.js and Tailwind CSS for real-time cluster monitoring.
 
-### Features
-
-- **Real-time Updates**: Live data via WebSocket connections
-- **Cluster Overview**: Total nodes, GPUs, memory, and utilization
-- **Magic Moment View**: Instant identification of GPU contention
-- **Node Details**: Individual node status and GPU information
-
-### Accessing the Dashboard
-
-1. Start the coordinator: `gpukill --server --server-port 8080`
-2. Start the dashboard UI: `cd dashboard && npm run dev`
-3. Open your browser to `http://localhost:3000`
-4. View real-time cluster data and GPU contention
-
-### Dashboard Components
-
-#### Cluster Overview
-- Total number of nodes
-- Total GPUs across cluster
-- Total memory capacity
-- Average utilization
-
-#### Magic Moment
-- Blocked GPUs with high utilization
-- Top users by GPU memory usage
-- Real-time contention analysis
-
-#### Node Details
-- Individual node status
-- GPU utilization and memory usage
-- Process information
-- Last seen timestamps
-
-#### Rogue Detection
-- Real-time threat scanning
-- Risk score visualization
-- Crypto miner detection
-- Suspicious process identification
-- Resource abuse monitoring
-
-#### Guard Mode Management
-- **Policy Tabs**: Separate interfaces for User, Group, and GPU policies
-- **Member Management**: Add/remove group members and GPU allowed users
-- **Visual Tables**: Clean display of all policies with action buttons
-- **Modal Forms**: Intuitive policy creation with validation
-- **Real-time Updates**: Live policy status and violation monitoring
-- **Policy Statistics**: Modern gradient cards showing policy counts and status
-- **Enforcement Toggles**: Interactive switches for soft/hard enforcement modes
-- **Policy Testing**: Built-in simulation and testing interface
-- **Data Persistence**: Policy data saved locally across page refreshes
-- **Three-Panel Layout**: Fixed sidebar navigation with scrollable content
+Check the [Kill Suite](https://kagehq.com) website.
 
 
 ## MCP Server
@@ -1352,7 +1286,6 @@ Guard Mode is designed to:
 - **Safe Testing**: Dry-run mode allows testing policies without affecting running processes
 - **Flexible Enforcement**: Choose between soft warnings and hard enforcement actions
 - **Real-time Monitoring**: Live policy violation detection and alerting
-- **Dashboard Integration**: Visual policy management and monitoring interface
 
 ### Configuration
 
@@ -1589,36 +1522,6 @@ POST /api/guard/toggle-dry-run
 # Test policies
 POST /api/guard/test-policies
 ```
-
-### Dashboard Integration
-
-The dashboard provides a comprehensive interface for Guard Mode management:
-
-#### Status Overview
-- **Mode Indicator**: Shows current enforcement mode (dry-run/enforcing)
-- **Policy Counts**: Displays number of active policies
-- **Violation Statistics**: Shows total violations and warnings
-- **Real-time Updates**: Live status monitoring
-
-#### Policy Management
-- **Tabbed Interface**: Separate tabs for User, Group, and GPU policies
-- **Visual Policy Editor**: Create and edit policies through modal forms
-- **Member Management**: Add/remove group members and GPU allowed users
-- **Policy Statistics**: View policy counts and effectiveness with modern cards
-- **Visual Tables**: Clean, organized display of all policies with action buttons
-- **Configuration Export**: Download policy configurations
-
-#### Monitoring and Alerts
-- **Recent Violations**: Display latest policy violations
-- **Warning History**: Track policy warnings over time
-- **Action Logs**: Monitor enforcement actions taken
-- **Real-time Alerts**: Live violation notifications
-
-#### Testing Interface
-- **Policy Testing**: Run policy simulations
-- **Dry-run Toggle**: Switch between testing and enforcement modes
-- **Simulation Results**: View detailed test results
-- **Action Preview**: See what would happen in enforcement mode
 
 ### Violation Types
 

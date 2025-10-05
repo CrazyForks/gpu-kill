@@ -15,7 +15,6 @@ Join our Discord community for discussions, support, and updates:
 - **Kill Processes**: Gracefully terminate stuck GPU processes
 - **Security**: Detect crypto miners and suspicious activity
 - **Guard Mode**: Policy enforcement to prevent resource abuse
-- **Dashboard**: Web interface for cluster monitoring
 - **Remote**: Manage GPUs across multiple servers
 - **Multi-Vendor**: Works with NVIDIA, AMD, Intel, and Apple Silicon
 - **AI Integration**: MCP server for AI assistant integration
@@ -120,38 +119,13 @@ gpukill --reset 0        # = gpukill --reset --gpu 0
 
 # Safe mode: dry-run first (no changes)
 gpukill 12345 --safe     # alias: --dry-run
-
-# Bring up the backend API (and optionally open dashboard)
-gpukill up               # = gpukill --server --server-port 8080
-gpukill up --open        # tries to open http://localhost:3000
 ```
 
 ## Dashboard
 
-Start the web interface for cluster monitoring:
+![GPU Kill Dashboard](dashboard/public/screenshot.png)
 
-```bash
-# 1. Start the backend API server
-gpukill --server --server-port 8080
-
-# 2. Start the dashboard UI (in a new terminal)
-cd dashboard
-npm install  # First time only
-npm run dev
-
-# 3. Access the dashboard
-open http://localhost:3000
-```
-
-**Note**: You need both the backend server (port 8080) and frontend UI (port 3000) running for the dashboard to work.
-
-![GPU Kill Dashboard](screenshot.png)
-
-The dashboard provides:
-- **Real-time monitoring** of all GPUs
-- **Security detection** with threat analysis
-- **Policy management** for resource control
-- **Cluster overview** with Magic Moment insights
+Check the [Kill Suite](https://kagehq.com) website.
 
 ## MCP Server
 
@@ -322,7 +296,6 @@ See **[docs/CLOUD_GPU_SETUP.md](docs/CLOUD_GPU_SETUP.md)** for AWS, GCP, and Azu
 ## Documentation
 
 - **[DETAILED.md](DETAILED.md)** - Complete documentation, API reference, and advanced features
-- **[Dashboard README](dashboard/README.md)** - Web interface documentation
 - **[CI_CD.md](CI_CD.md)** - CI/CD pipeline and testing infrastructure
 - **[docs/HOTAISLE_INTEGRATION.md](docs/HOTAISLE_INTEGRATION.md)** - Hot Aisle integration guide
 - **[docs/CLOUD_GPU_SETUP.md](docs/CLOUD_GPU_SETUP.md)** - Cloud GPU setup guide (AWS, GCP, Azure)
