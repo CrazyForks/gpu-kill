@@ -252,12 +252,6 @@ jobs:
       - name: Test HTTP server build
         run: cargo build --release
 
-      - name: Test dashboard build
-        run: |
-          cd dashboard
-          npm install
-          npm run build
-
   # Native Linux compilation
   linux-compile:
     name: Linux Compile

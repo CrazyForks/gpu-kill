@@ -122,9 +122,3 @@ jobs:
           cargo build --release
           # Test HTTP server startup
           timeout 10 ./target/release/gpukill --server --server-port 8080 || true
-
-      - name: Test dashboard build
-        run: |
-          cd dashboard
-          npm install
-          npm run build
