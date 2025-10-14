@@ -472,7 +472,8 @@ impl GpuVendorInterface for AmdVendor {
                 power_stdout
                     .lines()
                     .find(|line| {
-                        line.contains("Average Graphics Package Power") || line.contains("Power-Usage")
+                        line.contains("Average Graphics Package Power")
+                            || line.contains("Power-Usage")
                     })
                     .and_then(|line| {
                         // Try different patterns for ROCm 7.0.0
@@ -609,10 +610,10 @@ impl GpuVendorInterface for AmdVendor {
             std::path::Path::new("/sys/class/drm/card0/device/vendor").exists()
                 && std::fs::read_to_string("/sys/class/drm/card0/device/vendor")
                     .ok()
-                    .and_then(|v| {
+                    .map(|v| {
                         let vendor_id = v.trim();
                         // AMD vendor IDs: 0x1002, 0x1022
-                        Some(vendor_id == "0x1002" || vendor_id == "0x1022")
+                        vendor_id == "0x1002" || vendor_id == "0x1022"
                     })
                     .unwrap_or(false)
         }
@@ -622,7 +623,8 @@ impl GpuVendorInterface for AmdVendor {
     }
 
     fn get_availability_error() -> String {
-        "AMD GPU not detected. For full support, please install ROCm drivers (rocm-smi).".to_string()
+        "AMD GPU not detected. For full support, please install ROCm drivers (rocm-smi)."
+            .to_string()
     }
 }
 
