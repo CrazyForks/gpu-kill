@@ -214,7 +214,7 @@ pub struct AmdVendor {
 
 impl GpuVendorInterface for AmdVendor {
     fn initialize() -> Result<Self> {
-        // Check if rocm-smi is available
+        // Check if AMD GPU is available (either via rocm-smi or lspci/sysfs)
         if !Self::is_available() {
             return Err(anyhow::anyhow!("{}", Self::get_availability_error()));
         }
@@ -226,95 +226,166 @@ impl GpuVendorInterface for AmdVendor {
     }
 
     fn device_count(&self) -> Result<u32> {
-        // Use rocm-smi --showid to get device list
-        let output = std::process::Command::new("rocm-smi")
+        // Try rocm-smi first (most accurate)
+        let rocm_result = std::process::Command::new("rocm-smi")
             .args(["--showid"])
-            .output()
-            .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
+            .output();
 
-        if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "rocm-smi failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
+        if let Ok(output) = rocm_result {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+
+                // Parse the output to count actual devices
+                // For MI300X VF, we need to filter out virtual functions
+                // rocm-smi --showid outputs device IDs, one per line
+                let device_count = stdout
+                    .lines()
+                    .filter(|line| {
+                        let line = line.trim();
+                        !line.is_empty() && !line.starts_with("GPU") && !line.starts_with("#")
+                        // Skip comments
+                    })
+                    .count();
+
+                // For MI300X VF, if we detect multiple devices but they're all virtual functions,
+                // we should only count the physical device
+                if device_count > 1 {
+                    // Try to get more detailed info to distinguish physical vs virtual
+                    let detailed_output = std::process::Command::new("rocm-smi")
+                        .args(["--showproductname"])
+                        .output();
+
+                    if let Ok(detailed) = detailed_output {
+                        if detailed.status.success() {
+                            let detailed_stdout = String::from_utf8_lossy(&detailed.stdout);
+                            // If we see "MI300X VF" in the output, it's likely virtual functions
+                            if detailed_stdout.contains("MI300X VF") {
+                                return Ok(1); // Only count the physical device
+                            }
+                        }
+                    }
+                }
+
+                return Ok(device_count as u32);
+            }
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        // Parse the output to count actual devices
-        // For MI300X VF, we need to filter out virtual functions
-        // rocm-smi --showid outputs device IDs, one per line
-        let device_count = stdout
-            .lines()
-            .filter(|line| {
-                let line = line.trim();
-                !line.is_empty() && !line.starts_with("GPU") && !line.starts_with("#")
-                // Skip comments
-            })
-            .count();
-
-        // For MI300X VF, if we detect multiple devices but they're all virtual functions,
-        // we should only count the physical device
-        if device_count > 1 {
-            // Try to get more detailed info to distinguish physical vs virtual
-            let detailed_output = std::process::Command::new("rocm-smi")
-                .args(["--showproductname"])
-                .output();
-
-            if let Ok(detailed) = detailed_output {
-                if detailed.status.success() {
-                    let detailed_stdout = String::from_utf8_lossy(&detailed.stdout);
-                    // If we see "MI300X VF" in the output, it's likely virtual functions
-                    if detailed_stdout.contains("MI300X VF") {
-                        return Ok(1); // Only count the physical device
+        // Fallback: Count AMD GPUs via lspci
+        #[cfg(target_os = "linux")]
+        {
+            let lspci_result = std::process::Command::new("lspci").output();
+            if let Ok(output) = lspci_result {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let count = stdout
+                        .lines()
+                        .filter(|line| {
+                            let lower = line.to_lowercase();
+                            lower.contains("amd")
+                                && (lower.contains("vga")
+                                    || lower.contains("display")
+                                    || lower.contains("3d"))
+                        })
+                        .count();
+                    if count > 0 {
+                        return Ok(count as u32);
                     }
                 }
             }
         }
 
-        Ok(device_count as u32)
+        // If all else fails, return 1 (we detected AMD is available in is_available())
+        Ok(1)
     }
 
     fn get_gpu_info(&self, index: u32) -> Result<GpuInfo> {
-        let output = std::process::Command::new("rocm-smi")
+        // Try rocm-smi first
+        let rocm_result = std::process::Command::new("rocm-smi")
             .args(["--showproductname", "-d", &index.to_string()])
-            .output()
-            .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
+            .output();
 
-        if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "rocm-smi failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
+        let (name, mem_total_mb) = if let Ok(output) = rocm_result {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let gpu_name = stdout
+                    .lines()
+                    .find(|line| line.contains("Card series"))
+                    .and_then(|line| line.split(':').nth(1))
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_else(|| format!("AMD GPU {}", index));
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let name = stdout
-            .lines()
-            .find(|line| line.contains("Card series"))
-            .and_then(|line| line.split(':').nth(1))
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| format!("AMD GPU {}", index));
+                // Get memory info
+                let mem_output = std::process::Command::new("rocm-smi")
+                    .args(["--showmeminfo", "vram", "-d", &index.to_string()])
+                    .output();
 
-        // Get memory info
-        let mem_output = std::process::Command::new("rocm-smi")
-            .args(["--showmeminfo", "vram", "-d", &index.to_string()])
-            .output()
-            .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
+                let mem = if let Ok(mem_output) = mem_output {
+                    if mem_output.status.success() {
+                        let mem_stdout = String::from_utf8_lossy(&mem_output.stdout);
+                        mem_stdout
+                            .lines()
+                            .find(|line| line.contains("Total"))
+                            .and_then(|line| {
+                                line.split_whitespace()
+                                    .find(|s| s.ends_with("MB"))
+                                    .and_then(|s| s.replace("MB", "").parse::<u32>().ok())
+                            })
+                            .unwrap_or(8192)
+                    } else {
+                        8192
+                    }
+                } else {
+                    8192
+                };
 
-        let mem_total_mb = if mem_output.status.success() {
-            let mem_stdout = String::from_utf8_lossy(&mem_output.stdout);
-            mem_stdout
-                .lines()
-                .find(|line| line.contains("Total"))
-                .and_then(|line| {
-                    line.split_whitespace()
-                        .find(|s| s.ends_with("MB"))
-                        .and_then(|s| s.replace("MB", "").parse::<u32>().ok())
-                })
-                .unwrap_or(8192) // Default to 8GB if we can't determine
+                (gpu_name, mem)
+            } else {
+                (format!("AMD GPU {}", index), 8192)
+            }
         } else {
-            8192
+            // Fallback: Use lspci to get GPU name
+            #[cfg(target_os = "linux")]
+            {
+                let lspci_result = std::process::Command::new("lspci").output();
+                if let Ok(output) = lspci_result {
+                    if output.status.success() {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        let amd_gpus: Vec<&str> = stdout
+                            .lines()
+                            .filter(|line| {
+                                let lower = line.to_lowercase();
+                                lower.contains("amd")
+                                    && (lower.contains("vga")
+                                        || lower.contains("display")
+                                        || lower.contains("3d"))
+                            })
+                            .collect();
+
+                        if let Some(gpu_line) = amd_gpus.get(index as usize) {
+                            // Extract GPU name from lspci output
+                            // Format: "00:00.0 VGA compatible controller: AMD/ATI [...]"
+                            let gpu_name = gpu_line
+                                .split(':')
+                                .skip(2)
+                                .collect::<Vec<_>>()
+                                .join(":")
+                                .trim()
+                                .to_string();
+                            return Ok(GpuInfo {
+                                index: index as u16,
+                                name: if gpu_name.is_empty() {
+                                    format!("AMD GPU {}", index)
+                                } else {
+                                    gpu_name
+                                },
+                                mem_total_mb: 4096, // Default for integrated GPUs
+                            });
+                        }
+                    }
+                }
+            }
+
+            (format!("AMD GPU {}", index), 4096)
         };
 
         Ok(GpuInfo {
@@ -328,124 +399,136 @@ impl GpuVendorInterface for AmdVendor {
         // Get basic info first
         let gpu_info = self.get_gpu_info(index)?;
 
-        // Get utilization
+        // Get utilization (don't fail if rocm-smi is unavailable)
         let util_output = std::process::Command::new("rocm-smi")
             .args(["--showuse", "-d", &index.to_string()])
-            .output()
-            .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
+            .output();
 
-        let util_pct = if util_output.status.success() {
-            let util_stdout = String::from_utf8_lossy(&util_output.stdout);
-            util_stdout
-                .lines()
-                .find(|line| line.contains("GPU use") || line.contains("GFX-Uti"))
-                .and_then(|line| {
-                    // Try different patterns for ROCm 7.0.0
-                    line.split_whitespace()
-                        .find(|s| s.ends_with("%"))
-                        .and_then(|s| s.replace("%", "").parse::<f32>().ok())
-                        .or_else(|| {
-                            // Alternative parsing for different output formats
-                            line.split_whitespace()
-                                .find(|s| s.chars().all(|c| c.is_numeric() || c == '.'))
-                                .and_then(|s| s.parse::<f32>().ok())
-                        })
-                })
-                .unwrap_or(0.0)
+        let util_pct = if let Ok(output) = util_output {
+            if output.status.success() {
+                let util_stdout = String::from_utf8_lossy(&output.stdout);
+                util_stdout
+                    .lines()
+                    .find(|line| line.contains("GPU use") || line.contains("GFX-Uti"))
+                    .and_then(|line| {
+                        // Try different patterns for ROCm 7.0.0
+                        line.split_whitespace()
+                            .find(|s| s.ends_with("%"))
+                            .and_then(|s| s.replace("%", "").parse::<f32>().ok())
+                            .or_else(|| {
+                                // Alternative parsing for different output formats
+                                line.split_whitespace()
+                                    .find(|s| s.chars().all(|c| c.is_numeric() || c == '.'))
+                                    .and_then(|s| s.parse::<f32>().ok())
+                            })
+                    })
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            }
         } else {
             0.0
         };
 
-        // Get temperature
+        // Get temperature (don't fail if rocm-smi is unavailable)
         let temp_output = std::process::Command::new("rocm-smi")
             .args(["--showtemp", "-d", &index.to_string()])
-            .output()
-            .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
+            .output();
 
-        let temp_c = if temp_output.status.success() {
-            let temp_stdout = String::from_utf8_lossy(&temp_output.stdout);
-            temp_stdout
-                .lines()
-                .find(|line| line.contains("Temperature") || line.contains("Temp"))
-                .and_then(|line| {
-                    // Try different patterns for ROCm 7.0.0
-                    line.split_whitespace()
-                        .find(|s| s.ends_with("C") || s.ends_with("°C"))
-                        .and_then(|s| s.replace("C", "").replace("°", "").parse::<i32>().ok())
-                        .or_else(|| {
-                            // Alternative parsing for different output formats
-                            line.split_whitespace()
-                                .find(|s| s.chars().all(|c| c.is_numeric()))
-                                .and_then(|s| s.parse::<i32>().ok())
-                        })
-                })
-                .unwrap_or(0)
+        let temp_c = if let Ok(output) = temp_output {
+            if output.status.success() {
+                let temp_stdout = String::from_utf8_lossy(&output.stdout);
+                temp_stdout
+                    .lines()
+                    .find(|line| line.contains("Temperature") || line.contains("Temp"))
+                    .and_then(|line| {
+                        // Try different patterns for ROCm 7.0.0
+                        line.split_whitespace()
+                            .find(|s| s.ends_with("C") || s.ends_with("°C"))
+                            .and_then(|s| s.replace("C", "").replace("°", "").parse::<i32>().ok())
+                            .or_else(|| {
+                                // Alternative parsing for different output formats
+                                line.split_whitespace()
+                                    .find(|s| s.chars().all(|c| c.is_numeric()))
+                                    .and_then(|s| s.parse::<i32>().ok())
+                            })
+                    })
+                    .unwrap_or(0)
+            } else {
+                0
+            }
         } else {
             0
         };
 
-        // Get power usage
+        // Get power usage (don't fail if rocm-smi is unavailable)
         let power_output = std::process::Command::new("rocm-smi")
             .args(["--showpower", "-d", &index.to_string()])
-            .output()
-            .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
+            .output();
 
-        let power_w = if power_output.status.success() {
-            let power_stdout = String::from_utf8_lossy(&power_output.stdout);
-            power_stdout
-                .lines()
-                .find(|line| {
-                    line.contains("Average Graphics Package Power") || line.contains("Power-Usage")
-                })
-                .and_then(|line| {
-                    // Try different patterns for ROCm 7.0.0
-                    line.split_whitespace()
-                        .find(|s| s.ends_with("W"))
-                        .and_then(|s| s.replace("W", "").parse::<f32>().ok())
-                        .or_else(|| {
-                            // Alternative parsing for "134/750 W" format
-                            line.split_whitespace()
-                                .find(|s| s.contains("/") && s.ends_with("W"))
-                                .and_then(|s| {
-                                    s.split("/")
-                                        .next()
-                                        .and_then(|part| part.parse::<f32>().ok())
-                                })
-                        })
-                })
-                .unwrap_or(0.0)
+        let power_w = if let Ok(output) = power_output {
+            if output.status.success() {
+                let power_stdout = String::from_utf8_lossy(&output.stdout);
+                power_stdout
+                    .lines()
+                    .find(|line| {
+                        line.contains("Average Graphics Package Power") || line.contains("Power-Usage")
+                    })
+                    .and_then(|line| {
+                        // Try different patterns for ROCm 7.0.0
+                        line.split_whitespace()
+                            .find(|s| s.ends_with("W"))
+                            .and_then(|s| s.replace("W", "").parse::<f32>().ok())
+                            .or_else(|| {
+                                // Alternative parsing for "134/750 W" format
+                                line.split_whitespace()
+                                    .find(|s| s.contains("/") && s.ends_with("W"))
+                                    .and_then(|s| {
+                                        s.split("/")
+                                            .next()
+                                            .and_then(|part| part.parse::<f32>().ok())
+                                    })
+                            })
+                    })
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            }
         } else {
             0.0
         };
 
-        // Get memory usage
+        // Get memory usage (don't fail if rocm-smi is unavailable)
         let mem_output = std::process::Command::new("rocm-smi")
             .args(["--showmemuse", "-d", &index.to_string()])
-            .output()
-            .map_err(|e| anyhow::anyhow!("Failed to run rocm-smi: {}", e))?;
+            .output();
 
-        let mem_used_mb = if mem_output.status.success() {
-            let mem_stdout = String::from_utf8_lossy(&mem_output.stdout);
-            mem_stdout
-                .lines()
-                .find(|line| line.contains("GPU memory use") || line.contains("Mem-Usage"))
-                .and_then(|line| {
-                    // Try different patterns for ROCm 7.0.0
-                    line.split_whitespace()
-                        .find(|s| s.ends_with("MB"))
-                        .and_then(|s| s.replace("MB", "").parse::<u32>().ok())
-                        .or_else(|| {
-                            // Alternative parsing for "285/196288 MB" format
-                            line.split_whitespace()
-                                .find(|s| s.contains("/") && s.ends_with("MB"))
-                                .and_then(|s| {
-                                    s.split("/")
-                                        .next()
-                                        .and_then(|part| part.parse::<u32>().ok())
-                                })
-                        })
-                })
-                .unwrap_or(0)
+        let mem_used_mb = if let Ok(output) = mem_output {
+            if output.status.success() {
+                let mem_stdout = String::from_utf8_lossy(&output.stdout);
+                mem_stdout
+                    .lines()
+                    .find(|line| line.contains("GPU memory use") || line.contains("Mem-Usage"))
+                    .and_then(|line| {
+                        // Try different patterns for ROCm 7.0.0
+                        line.split_whitespace()
+                            .find(|s| s.ends_with("MB"))
+                            .and_then(|s| s.replace("MB", "").parse::<u32>().ok())
+                            .or_else(|| {
+                                // Alternative parsing for "285/196288 MB" format
+                                line.split_whitespace()
+                                    .find(|s| s.contains("/") && s.ends_with("MB"))
+                                    .and_then(|s| {
+                                        s.split("/")
+                                            .next()
+                                            .and_then(|part| part.parse::<u32>().ok())
+                                    })
+                            })
+                    })
+                    .unwrap_or(0)
+            } else {
+                0
+            }
         } else {
             0
         };
@@ -490,15 +573,56 @@ impl GpuVendorInterface for AmdVendor {
     }
 
     fn is_available() -> bool {
-        std::process::Command::new("rocm-smi")
+        // First check for rocm-smi (ROCm drivers)
+        if std::process::Command::new("rocm-smi")
             .arg("--version")
             .output()
             .map(|output| output.status.success())
             .unwrap_or(false)
+        {
+            return true;
+        }
+
+        // Fallback: Check for AMD GPUs via lspci (works for integrated/consumer GPUs)
+        #[cfg(target_os = "linux")]
+        {
+            let lspci_check = std::process::Command::new("lspci")
+                .output()
+                .map(|output| {
+                    if output.status.success() {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        stdout.to_lowercase().contains("amd")
+                            && (stdout.to_lowercase().contains("vga")
+                                || stdout.to_lowercase().contains("display")
+                                || stdout.to_lowercase().contains("3d"))
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false);
+
+            if lspci_check {
+                return true;
+            }
+
+            // Also check sysfs for amdgpu devices
+            std::path::Path::new("/sys/class/drm/card0/device/vendor").exists()
+                && std::fs::read_to_string("/sys/class/drm/card0/device/vendor")
+                    .ok()
+                    .and_then(|v| {
+                        let vendor_id = v.trim();
+                        // AMD vendor IDs: 0x1002, 0x1022
+                        Some(vendor_id == "0x1002" || vendor_id == "0x1022")
+                    })
+                    .unwrap_or(false)
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        false
     }
 
     fn get_availability_error() -> String {
-        "AMD ROCm not installed or rocm-smi not available. Please install ROCm drivers.".to_string()
+        "AMD GPU not detected. For full support, please install ROCm drivers (rocm-smi).".to_string()
     }
 }
 
