@@ -158,7 +158,7 @@ open http://localhost:3000
 
 ### Production Deployment
 
-For production GPU monitoring solutions, check the [Kill Suite](https://treadiehq.com) website.
+For production GPU monitoring solutions, check the [Kill Suite](https://treadie.com) website.
 
 ## MCP Server
 
