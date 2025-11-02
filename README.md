@@ -121,11 +121,44 @@ gpukill --reset 0        # = gpukill --reset --gpu 0
 gpukill 12345 --safe     # alias: --dry-run
 ```
 
-## Dashboard
+## Dashboard (Local Development)
+
+The GPU Kill dashboard provides a modern web interface for GPU cluster monitoring. The dashboard is included in the repository for local development but is **not required** for core GPU Kill functionality.
 
 ![GPU Kill Dashboard](dashboard/public/screenshot.png)
 
-Check the [Kill Suite](https://kagehq.com) website.
+### Quick Start
+
+```bash
+# 1. Start the backend API server
+gpukill --server --server-port 8080
+
+# 2. In a new terminal, start the dashboard UI
+cd dashboard
+npm install  # First time only
+npm run dev
+
+# 3. Access the dashboard
+open http://localhost:3000
+```
+
+**Requirements:**
+- Node.js 18+ and npm
+- GPU Kill backend server running (provides the API)
+
+**Note**: You need both the backend server (port 8080) and frontend UI (port 3000) running for the dashboard to work.
+
+### Dashboard Features
+
+- **Real-time monitoring** of all GPUs across your cluster
+- **Security detection** with threat analysis and risk scoring
+- **Policy management** for resource control and enforcement
+- **Cluster overview** with Magic Moment contention insights
+- **Interactive controls** for process management and GPU operations
+
+### Production Deployment
+
+For production GPU monitoring solutions, check the [Kill Suite](https://kagehq.com) website.
 
 ## MCP Server
 
