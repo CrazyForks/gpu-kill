@@ -3,7 +3,7 @@ set -e
 
 # gpukill install script: fetch prebuilt GitHub release binary
 
-REPO_OWNER="kagehq"
+REPO_OWNER="treadiehq"
 REPO_NAME="gpu-kill"
 INSTALL_DIR_DEFAULT="$HOME/.local/bin"
 BIN_NAME="gpukill"

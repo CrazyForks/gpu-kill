@@ -8,10 +8,10 @@ members = [
 name = "gpukill"
 version = "0.1.7"
 edition = "2021"
-authors = ["Kage <info@kagehq.com>"]
+authors = ["Kage <info@treadiehq.com>"]
 description = "A CLI tool for GPU management and monitoring supporting NVIDIA, AMD, Intel, and Apple Silicon GPUs"
 license = "FSL-1.1-MIT"
-repository = "https://github.com/kagehq/gpu-kill"
+repository = "https://github.com/treadiehq/gpu-kill"
 keywords = ["gpu", "nvidia", "amd", "intel", "apple", "metal", "nvml", "rocm", "cli", "monitoring"]
 categories = ["command-line-utilities", "development-tools"]
 

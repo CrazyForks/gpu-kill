@@ -83,7 +83,7 @@ xcode-select --install
 ### Install & Run
 ```bash
 # Build from source (first build may take 2-3 minutes)
-git clone https://github.com/kagehq/gpu-kill.git
+git clone https://github.com/treadiehq/gpu-kill.git
 cd gpu-kill
 cargo build --release
 
@@ -92,9 +92,9 @@ cargo install gpukill
 
 # Or one-liner installers (recommended)
 # macOS/Linux
-curl -fsSL https://raw.githubusercontent.com/kagehq/gpu-kill/refs/heads/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/treadiehq/gpu-kill/refs/heads/main/scripts/install.sh | sh
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/kagehq/gpu-kill/refs/heads/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/treadiehq/gpu-kill/refs/heads/main/scripts/install.ps1 | iex
 
 # List your GPUs
 gpukill --list
@@ -158,7 +158,7 @@ open http://localhost:3000
 
 ### Production Deployment
 
-For production GPU monitoring solutions, check the [Kill Suite](https://kagehq.com) website.
+For production GPU monitoring solutions, check the [Kill Suite](https://treadiehq.com) website.
 
 ## MCP Server
 
@@ -305,7 +305,7 @@ cargo test --test gpu_hardware_tests  # Runs on your GPU hardware
 **Option 2: Set Up Cloud GPU (5 minutes)**
 ```bash
 # On any cloud GPU instance:
-curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
+curl -sSL https://raw.githubusercontent.com/treadiehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
 ```
 
 **Option 3: Self-Hosted Runner**

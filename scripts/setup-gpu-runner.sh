@@ -125,7 +125,7 @@ test_gpu() {
     
     # Clone and build GPU Kill
     if [[ ! -d "gpu-kill" ]]; then
-        git clone https://github.com/kagehq/gpu-kill.git
+        git clone https://github.com/treadiehq/gpu-kill.git
     fi
     
     cd gpu-kill

@@ -16,13 +16,13 @@ function Get-Arch {
 # Try winget first
 try {
   if (Get-Command winget -ErrorAction SilentlyContinue) {
-    winget install --id KageHQ.GPUKill --silent --accept-package-agreements --accept-source-agreements
+    winget install --id TreadieHQ.GPUKill --silent --accept-package-agreements --accept-source-agreements
     if ($LASTEXITCODE -eq 0) { Write-Host "✅ Installed via winget"; exit 0 }
   }
 } catch {}
 
 # Fallback to GitHub Releases
-$Owner = "kagehq"
+$Owner = "treadiehq"
 $Repo = "gpu-kill"
 if ($Version -ne "") {
   $ApiUrl = "https://api.github.com/repos/$Owner/$Repo/releases/tags/$Version"

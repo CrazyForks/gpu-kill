@@ -96,7 +96,7 @@ cargo test --test gpu_hardware_tests
 ### Option 2: Cloud GPU Setup (5 minutes)
 ```bash
 # On any cloud GPU instance (AWS, GCP, Azure):
-curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
+curl -sSL https://raw.githubusercontent.com/treadiehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
 ```
 
 See **[docs/CLOUD_GPU_SETUP.md](docs/CLOUD_GPU_SETUP.md)** for detailed cloud provider setup instructions.
@@ -137,7 +137,7 @@ See **[docs/CLOUD_GPU_SETUP.md](docs/CLOUD_GPU_SETUP.md)** for detailed cloud pr
 #### Automated Setup (Recommended)
 ```bash
 # Run the automated setup script
-curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
+curl -sSL https://raw.githubusercontent.com/treadiehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
 ```
 
 #### Manual Setup
@@ -384,7 +384,7 @@ gh workflow run gpu-testing.yml -f gpu_vendor=amd
 # 1. Launch GPU instance on your preferred cloud provider
 # 2. Connect via SSH
 # 3. Run automated setup:
-curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
+curl -sSL https://raw.githubusercontent.com/treadiehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
 ```
 
 ### Cost Optimization

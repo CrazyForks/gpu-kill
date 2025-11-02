@@ -20,7 +20,7 @@ This guide shows how to set up GPU testing using cloud services.
 2. **Connect and Setup:**
    ```bash
    ssh -i your-key.pem ubuntu@your-instance-ip
-   curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
+   curl -sSL https://raw.githubusercontent.com/treadiehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
    ```
 
 ### Option 2: Google Cloud with GPU
@@ -40,7 +40,7 @@ This guide shows how to set up GPU testing using cloud services.
 2. **Setup:**
    ```bash
    gcloud compute ssh gpu-test-runner --zone=us-central1-a
-   curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
+   curl -sSL https://raw.githubusercontent.com/treadiehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
    ```
 
 ### Option 3: Azure with GPU
@@ -59,7 +59,7 @@ This guide shows how to set up GPU testing using cloud services.
 2. **Setup:**
    ```bash
    ssh azureuser@your-vm-ip
-   curl -sSL https://raw.githubusercontent.com/kagehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
+   curl -sSL https://raw.githubusercontent.com/treadiehq/gpu-kill/main/scripts/setup-gpu-runner.sh | bash
    ```
 
 ## Cost-Effective Options
@@ -166,7 +166,7 @@ gcloud compute instances add-metadata gpu-test-runner \
 #!/bin/bash
 # Monitor GPU test results
 curl -H "Authorization: token $GITHUB_TOKEN" \
-  "https://api.github.com/repos/kagehq/gpu-kill/actions/runs" | \
+  "https://api.github.com/repos/treadiehq/gpu-kill/actions/runs" | \
   jq '.workflow_runs[] | select(.name=="GPU Hardware Tests") | {status, conclusion, created_at}'
 ```
 

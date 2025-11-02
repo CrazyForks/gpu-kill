@@ -92,7 +92,7 @@ cargo install gpukill
 ### Build from Source
 
 ```bash
-git clone https://github.com/kagehq/gpu-kill.git
+git clone https://github.com/treadiehq/gpu-kill.git
 cd gpukill
 cargo build --release
 ```
@@ -603,7 +603,7 @@ gpukill --audit --audit-user john --output json > john_gpu_usage.json
 
 The suspicious usage detection is fully integrated with the dashboard:
 
-Check the [Kill Suite](https://kagehq.com) website
+Check the [Kill Suite](https://treadiehq.com) website
 
 
 
@@ -803,7 +803,7 @@ gpukill --remote server --audit --audit-summary
 
 The GPU Kill dashboard is a modern web interface built with Nuxt.js and Tailwind CSS for real-time cluster monitoring.
 
-Check the [Kill Suite](https://kagehq.com) website.
+Check the [Kill Suite](https://treadiehq.com) website.
 
 
 ## MCP Server

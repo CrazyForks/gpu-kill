@@ -69,7 +69,7 @@ curl -o actions-runner-linux-x64-2.311.0.tar.gz -L https://github.com/actions/ru
 tar xzf ./actions-runner-linux-x64-2.311.0.tar.gz
 
 # Configure runner (get token from GitHub repo settings)
-./config.sh --url https://github.com/kagehq/gpu-kill --token <YOUR_TOKEN>
+./config.sh --url https://github.com/treadiehq/gpu-kill --token <YOUR_TOKEN>
 ./config.sh --name "nvidia-gpu-runner" --labels "self-hosted,gpu,nvidia,ubuntu-22.04"
 
 # Install as service
@@ -107,7 +107,7 @@ curl -o actions-runner-linux-x64-2.311.0.tar.gz -L https://github.com/actions/ru
 tar xzf ./actions-runner-linux-x64-2.311.0.tar.gz
 
 # Configure runner
-./config.sh --url https://github.com/kagehq/gpu-kill --token <YOUR_TOKEN>
+./config.sh --url https://github.com/treadiehq/gpu-kill --token <YOUR_TOKEN>
 ./config.sh --name "amd-gpu-runner" --labels "self-hosted,gpu,amd,ubuntu-22.04"
 
 # Install as service
@@ -141,7 +141,7 @@ curl -o actions-runner-linux-x64-2.311.0.tar.gz -L https://github.com/actions/ru
 tar xzf ./actions-runner-linux-x64-2.311.0.tar.gz
 
 # Configure runner
-./config.sh --url https://github.com/kagehq/gpu-kill --token <YOUR_TOKEN>
+./config.sh --url https://github.com/treadiehq/gpu-kill --token <YOUR_TOKEN>
 ./config.sh --name "intel-gpu-runner" --labels "self-hosted,gpu,intel,ubuntu-22.04"
 
 # Install as service
@@ -172,7 +172,7 @@ curl -o actions-runner-osx-arm64-2.311.0.tar.gz -L https://github.com/actions/ru
 tar xzf ./actions-runner-osx-arm64-2.311.0.tar.gz
 
 # Configure runner
-./config.sh --url https://github.com/kagehq/gpu-kill --token <YOUR_TOKEN>
+./config.sh --url https://github.com/treadiehq/gpu-kill --token <YOUR_TOKEN>
 ./config.sh --name "apple-gpu-runner" --labels "self-hosted,gpu,apple,macos-13"
 
 # Install as service
@@ -226,7 +226,7 @@ tail -f /home/runner/_diag/Runner_*.log
 cd actions-runner
 ./config.sh remove --token <NEW_TOKEN>
 # Download new version
-./config.sh --url https://github.com/kagehq/gpu-kill --token <NEW_TOKEN>
+./config.sh --url https://github.com/treadiehq/gpu-kill --token <NEW_TOKEN>
 ```
 
 ## Cost Optimization

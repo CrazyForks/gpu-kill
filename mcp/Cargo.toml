@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["GPU Kill Team"]
 description = "MCP server for GPU Kill - AI-accessible GPU management"
 license = "MIT"
-repository = "https://github.com/kagehq/gpu-kill"
+repository = "https://github.com/treadiehq/gpu-kill"
 
 [dependencies]
 # Core MCP dependencies
