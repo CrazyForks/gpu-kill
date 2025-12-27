@@ -92,9 +92,9 @@ cargo install gpukill
 
 # Or one-liner installers (recommended)
 # macOS/Linux
-curl -fsSL https://raw.githubusercontent.com/treadiehq/gpu-kill/refs/heads/main/scripts/install.sh | sh
+curl -fsSL https://gpukill.com/install | sh
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/treadiehq/gpu-kill/refs/heads/main/scripts/install.ps1 | iex
+irm https://gpukill.com/install-windows | iex
 
 # List your GPUs
 gpukill --list
