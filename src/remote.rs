@@ -328,8 +328,11 @@ mod tests {
 
         // The semicolon and dangerous command should be escaped/quoted
         // so they are treated as literal strings, not shell commands
+        // Note: shell-escape uses single quotes on Unix, double quotes on Windows
         assert!(
-            command.contains("'python; rm -rf /'") || command.contains("python\\; rm -rf /"),
+            command.contains("'python; rm -rf /'")    // Unix style
+                || command.contains("\"python; rm -rf /\"") // Windows style
+                || command.contains("python\\; rm -rf /"), // Backslash escape
             "Command injection attempt should be escaped: {}",
             command
         );
@@ -361,9 +364,11 @@ mod tests {
         for malicious_input in test_cases {
             let escaped = escape(Cow::Borrowed(malicious_input));
             // After escaping, the string should be safe to pass to a shell
-            // It should either be quoted or have metacharacters escaped
+            // It should either be quoted (single on Unix, double on Windows) or have metacharacters escaped
             assert!(
-                escaped.starts_with('\'') || escaped.contains('\\'),
+                escaped.starts_with('\'')  // Unix single quote
+                    || escaped.starts_with('"') // Windows double quote
+                    || escaped.contains('\\'), // Backslash escape
                 "Input '{}' should be escaped, got: {}",
                 malicious_input,
                 escaped
