@@ -33,13 +33,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-22.04, macos-13, windows-2022]
+        os: [ubuntu-22.04, macos-14, windows-2022]
         include:
           - os: ubuntu-22.04
             install_deps: |
               sudo apt-get update
               sudo apt-get install -y build-essential libssl-dev pkg-config
-          - os: macos-13
+          - os: macos-14
             install_deps: |
               xcode-select --install || true
           - os: windows-2022
