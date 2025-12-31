@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn test_shell_escape_prevents_command_injection() {
         // Test that shell metacharacters are properly escaped
-        let malicious_args = vec![
+        let malicious_args = [
             "--filter".to_string(),
             "python; rm -rf /".to_string(), // Command injection attempt
         ];

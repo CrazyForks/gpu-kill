@@ -240,6 +240,7 @@ impl CoordinatorState {
         let mut blocked_gpus = Vec::new();
         // Track unique (node_id, gpu_index) pairs per user to correctly count GPUs
         // Tuple: (unique_gpus, memory, utilization, process_count)
+        #[allow(clippy::type_complexity)]
         let mut user_stats: HashMap<String, (HashSet<(String, u16)>, u32, f32, u32)> =
             HashMap::new();
 
