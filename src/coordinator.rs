@@ -272,9 +272,12 @@ impl CoordinatorState {
 
                 // Aggregate user statistics
                 for process in &gpu_processes {
-                    let entry = user_stats
-                        .entry(process.user.clone())
-                        .or_insert((HashSet::new(), 0, 0.0, 0));
+                    let entry = user_stats.entry(process.user.clone()).or_insert((
+                        HashSet::new(),
+                        0,
+                        0.0,
+                        0,
+                    ));
                     // Track unique (node_id, gpu_index) pairs to correctly count GPUs
                     entry.0.insert((node_id.clone(), gpu.gpu_index));
                     entry.1 += process.used_mem_mb; // memory
@@ -801,10 +804,7 @@ mod tests {
             alice_stats.gpu_count, 1,
             "Alice uses 1 unique GPU, not 2 (one per process)"
         );
-        assert_eq!(
-            alice_stats.total_memory_mb, 8000,
-            "Total memory is correct"
-        );
+        assert_eq!(alice_stats.total_memory_mb, 8000, "Total memory is correct");
     }
 
     #[tokio::test]

@@ -246,7 +246,7 @@ pub struct PolicyInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, from_value};
+    use serde_json::{from_value, json};
 
     #[test]
     fn test_request_id_string() {

@@ -112,9 +112,7 @@ impl SshRemote {
         timeout_secs: u64,
     ) -> Result<std::process::Output> {
         // Check if sshpass is available
-        let sshpass_check = Command::new("which")
-            .arg("sshpass")
-            .output();
+        let sshpass_check = Command::new("which").arg("sshpass").output();
 
         if sshpass_check.is_err() || !sshpass_check.unwrap().status.success() {
             return Err(anyhow::anyhow!(
@@ -348,16 +346,16 @@ mod tests {
     fn test_shell_escape_various_metacharacters() {
         // Test various shell metacharacters that could be used for injection
         let test_cases = vec![
-            "test; whoami",       // Command chaining
-            "test | cat /etc/passwd", // Pipe
+            "test; whoami",             // Command chaining
+            "test | cat /etc/passwd",   // Pipe
             "test && touch /tmp/pwned", // AND operator
             "test || touch /tmp/pwned", // OR operator
-            "$(whoami)",          // Command substitution
-            "`whoami`",           // Backtick substitution
-            "test > /tmp/file",   // Output redirection
-            "test < /etc/passwd", // Input redirection
-            "$HOME",              // Variable expansion
-            "test\nwhoami",       // Newline injection
+            "$(whoami)",                // Command substitution
+            "`whoami`",                 // Backtick substitution
+            "test > /tmp/file",         // Output redirection
+            "test < /etc/passwd",       // Input redirection
+            "$HOME",                    // Variable expansion
+            "test\nwhoami",             // Newline injection
         ];
 
         for malicious_input in test_cases {

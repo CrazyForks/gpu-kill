@@ -278,14 +278,20 @@ impl RogueDetector {
         // Check whitelist first - skip detection for whitelisted users/processes
         if let Some(user) = &record.user {
             if self.is_user_whitelisted(user) {
-                debug!("Skipping crypto miner detection for whitelisted user: {}", user);
+                debug!(
+                    "Skipping crypto miner detection for whitelisted user: {}",
+                    user
+                );
                 return None;
             }
         }
 
         if let Some(process_name) = &record.process_name {
             if self.is_process_whitelisted(process_name) {
-                debug!("Skipping crypto miner detection for whitelisted process: {}", process_name);
+                debug!(
+                    "Skipping crypto miner detection for whitelisted process: {}",
+                    process_name
+                );
                 return None;
             }
         }
@@ -373,14 +379,20 @@ impl RogueDetector {
         // Check whitelist first - skip detection for whitelisted users/processes
         if let Some(user) = &record.user {
             if self.is_user_whitelisted(user) {
-                debug!("Skipping suspicious process detection for whitelisted user: {}", user);
+                debug!(
+                    "Skipping suspicious process detection for whitelisted user: {}",
+                    user
+                );
                 return None;
             }
         }
 
         if let Some(process_name) = &record.process_name {
             if self.is_process_whitelisted(process_name) {
-                debug!("Skipping suspicious process detection for whitelisted process: {}", process_name);
+                debug!(
+                    "Skipping suspicious process detection for whitelisted process: {}",
+                    process_name
+                );
                 return None;
             }
         }
@@ -456,14 +468,20 @@ impl RogueDetector {
         // Check whitelist first - skip detection for whitelisted users/processes
         if let Some(user) = &record.user {
             if self.is_user_whitelisted(user) {
-                debug!("Skipping resource abuser detection for whitelisted user: {}", user);
+                debug!(
+                    "Skipping resource abuser detection for whitelisted user: {}",
+                    user
+                );
                 return None;
             }
         }
 
         if let Some(process_name) = &record.process_name {
             if self.is_process_whitelisted(process_name) {
-                debug!("Skipping resource abuser detection for whitelisted process: {}", process_name);
+                debug!(
+                    "Skipping resource abuser detection for whitelisted process: {}",
+                    process_name
+                );
                 return None;
             }
         }
