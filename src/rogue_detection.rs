@@ -88,6 +88,10 @@ pub struct DetectionRules {
     pub max_utilization_pct: f32,
     pub max_duration_hours: f32,
     pub min_confidence_threshold: f32,
+    /// Users in this list are exempt from rogue detection
+    pub user_whitelist: Vec<String>,
+    /// Processes in this list are exempt from rogue detection
+    pub process_whitelist: Vec<String>,
 }
 
 impl Default for DetectionRules {
@@ -118,6 +122,18 @@ impl Default for DetectionRules {
             max_utilization_pct: 95.0,
             max_duration_hours: 24.0,
             min_confidence_threshold: 0.7,
+            user_whitelist: vec![
+                "root".to_string(),
+                "admin".to_string(),
+                "system".to_string(),
+            ],
+            process_whitelist: vec![
+                "python".to_string(),
+                "jupyter".to_string(),
+                "tensorflow".to_string(),
+                "pytorch".to_string(),
+                "nvidia-smi".to_string(),
+            ],
         }
     }
 }
@@ -234,6 +250,23 @@ impl RogueDetector {
         groups
     }
 
+    /// Check if a user is whitelisted
+    fn is_user_whitelisted(&self, user: &str) -> bool {
+        self.detection_rules
+            .user_whitelist
+            .iter()
+            .any(|u| u.eq_ignore_ascii_case(user))
+    }
+
+    /// Check if a process is whitelisted
+    fn is_process_whitelisted(&self, process_name: &str) -> bool {
+        let process_lower = process_name.to_lowercase();
+        self.detection_rules
+            .process_whitelist
+            .iter()
+            .any(|p| process_lower.contains(&p.to_lowercase()))
+    }
+
     /// Detect crypto mining activity
     fn detect_crypto_miner(&self, records: &[AuditRecord]) -> Option<CryptoMiner> {
         if records.is_empty() {
@@ -241,6 +274,22 @@ impl RogueDetector {
         }
 
         let record = &records[0]; // Use first record as representative
+
+        // Check whitelist first - skip detection for whitelisted users/processes
+        if let Some(user) = &record.user {
+            if self.is_user_whitelisted(user) {
+                debug!("Skipping crypto miner detection for whitelisted user: {}", user);
+                return None;
+            }
+        }
+
+        if let Some(process_name) = &record.process_name {
+            if self.is_process_whitelisted(process_name) {
+                debug!("Skipping crypto miner detection for whitelisted process: {}", process_name);
+                return None;
+            }
+        }
+
         let mut indicators = Vec::new();
         let mut confidence = 0.0;
 
@@ -320,6 +369,22 @@ impl RogueDetector {
         }
 
         let record = &records[0];
+
+        // Check whitelist first - skip detection for whitelisted users/processes
+        if let Some(user) = &record.user {
+            if self.is_user_whitelisted(user) {
+                debug!("Skipping suspicious process detection for whitelisted user: {}", user);
+                return None;
+            }
+        }
+
+        if let Some(process_name) = &record.process_name {
+            if self.is_process_whitelisted(process_name) {
+                debug!("Skipping suspicious process detection for whitelisted process: {}", process_name);
+                return None;
+            }
+        }
+
         let mut reasons = Vec::new();
         let mut confidence = 0.0;
 
@@ -387,6 +452,22 @@ impl RogueDetector {
         }
 
         let record = &records[0];
+
+        // Check whitelist first - skip detection for whitelisted users/processes
+        if let Some(user) = &record.user {
+            if self.is_user_whitelisted(user) {
+                debug!("Skipping resource abuser detection for whitelisted user: {}", user);
+                return None;
+            }
+        }
+
+        if let Some(process_name) = &record.process_name {
+            if self.is_process_whitelisted(process_name) {
+                debug!("Skipping resource abuser detection for whitelisted process: {}", process_name);
+                return None;
+            }
+        }
+
         let mut abuse_type = AbuseType::MemoryHog;
         let mut severity = 0.0;
 
@@ -614,6 +695,11 @@ mod tests {
         assert!(!rules.crypto_miner_patterns.is_empty());
         assert!(!rules.suspicious_process_names.is_empty());
         assert!(rules.max_memory_usage_gb > 0.0);
+        // Verify whitelist fields exist and have defaults
+        assert!(!rules.user_whitelist.is_empty());
+        assert!(!rules.process_whitelist.is_empty());
+        assert!(rules.user_whitelist.contains(&"root".to_string()));
+        assert!(rules.process_whitelist.contains(&"python".to_string()));
     }
 
     #[tokio::test]
@@ -621,5 +707,27 @@ mod tests {
         let audit_manager = AuditManager::new().await.unwrap();
         let detector = RogueDetector::new(audit_manager);
         assert_eq!(detector.detection_rules.min_confidence_threshold, 0.7);
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_functionality() {
+        let audit_manager = AuditManager::new().await.unwrap();
+        let detector = RogueDetector::new(audit_manager);
+
+        // Test user whitelist checking
+        assert!(detector.is_user_whitelisted("root"));
+        assert!(detector.is_user_whitelisted("ROOT")); // Case insensitive
+        assert!(detector.is_user_whitelisted("admin"));
+        assert!(!detector.is_user_whitelisted("hacker"));
+        assert!(!detector.is_user_whitelisted("unknown_user"));
+
+        // Test process whitelist checking
+        assert!(detector.is_process_whitelisted("python"));
+        assert!(detector.is_process_whitelisted("python3.10"));
+        assert!(detector.is_process_whitelisted("jupyter-notebook"));
+        assert!(detector.is_process_whitelisted("tensorflow_training"));
+        assert!(detector.is_process_whitelisted("pytorch_model"));
+        assert!(!detector.is_process_whitelisted("xmrig"));
+        assert!(!detector.is_process_whitelisted("suspicious_miner"));
     }
 }

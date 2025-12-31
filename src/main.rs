@@ -290,13 +290,17 @@ async fn execute_watch_mode(
     );
 
     loop {
+        // Clear screen BEFORE rendering new data so users see the data
+        // during the entire sleep interval (matches standard `watch` behavior)
+        if matches!(renderer.get_output_format(), OutputFormat::Table) {
+            renderer.clear_screen();
+        }
+
         match execute_single_list(details, containers, &vendor_filter, &renderer, &gpu_manager)
             .await
         {
             Ok(()) => {
-                if matches!(renderer.get_output_format(), OutputFormat::Table) {
-                    renderer.clear_screen();
-                }
+                // Data is now visible during the entire sleep interval
             }
             Err(e) => {
                 warn!("Failed to refresh data: {}", e);

@@ -69,7 +69,7 @@ impl ProcessManager {
 
     /// Gracefully terminate a process with timeout and escalation
     #[cfg(unix)]
-    pub fn graceful_kill(&self, pid: u32, timeout_secs: u16, force: bool) -> Result<()> {
+    pub fn graceful_kill(&mut self, pid: u32, timeout_secs: u16, force: bool) -> Result<()> {
         let pid = Pid::from_raw(pid as i32);
 
         // First, try SIGTERM
@@ -81,7 +81,7 @@ impl ProcessManager {
         let start = SystemTime::now();
 
         while SystemTime::now().duration_since(start).unwrap_or_default() < timeout {
-            // Check if process still exists
+            // Check if process still exists (with fresh data)
             if !self.is_process_running(pid.as_raw() as u32)? {
                 tracing::info!("Process {} terminated gracefully", pid);
                 return Ok(());
@@ -119,7 +119,7 @@ impl ProcessManager {
 
     /// Gracefully terminate a process with timeout and escalation (Windows stub)
     #[cfg(windows)]
-    pub fn graceful_kill(&self, _pid: u32, _timeout_secs: u16, _force: bool) -> Result<()> {
+    pub fn graceful_kill(&mut self, _pid: u32, _timeout_secs: u16, _force: bool) -> Result<()> {
         // On Windows, we can't use Unix signals, so we'll use a different approach
         // For now, just return an error indicating this feature isn't available on Windows
         Err(anyhow::anyhow!(
@@ -128,8 +128,14 @@ impl ProcessManager {
     }
 
     /// Check if a process is still running
-    fn is_process_running(&self, pid: u32) -> Result<bool> {
+    ///
+    /// This method refreshes the process info from the system before checking,
+    /// ensuring we get current state rather than stale cached data.
+    fn is_process_running(&mut self, pid: u32) -> Result<bool> {
         let sys_pid = SysPid::from_u32(pid);
+        // Refresh this specific process to get current state
+        // This is more efficient than refresh_all() and ensures we're not using stale cache
+        self.system.refresh_process(sys_pid);
         Ok(self.system.process(sys_pid).is_some())
     }
 

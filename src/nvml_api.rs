@@ -1,5 +1,6 @@
 use crate::util::{get_current_timestamp_iso, get_hostname};
 use anyhow::{Context, Result};
+use nvml_wrapper::enums::device::UsedGpuMemory;
 use nvml_wrapper::error::NvmlError;
 use nvml_wrapper::Nvml;
 use serde::{Deserialize, Serialize};
@@ -144,7 +145,10 @@ impl NvmlApi {
             pid: p.pid,
             user: "unknown".to_string(), // Will be filled by process info
             proc_name: "unknown".to_string(), // Will be filled by process info
-            used_mem_mb: 0,              // Will be filled by process info
+            used_mem_mb: match p.used_gpu_memory {
+                UsedGpuMemory::Used(bytes) => (bytes / 1024 / 1024) as u32,
+                UsedGpuMemory::Unavailable => 0,
+            },
             start_time: "unknown".to_string(), // Will be filled by process info
             container: None,
         });
@@ -200,7 +204,10 @@ impl NvmlApi {
                     pid: process.pid,
                     user: "unknown".to_string(), // Will be filled by process info
                     proc_name: "unknown".to_string(), // Will be filled by process info
-                    used_mem_mb: 0,              // Will be filled by process info
+                    used_mem_mb: match process.used_gpu_memory {
+                        UsedGpuMemory::Used(bytes) => (bytes / 1024 / 1024) as u32,
+                        UsedGpuMemory::Unavailable => 0,
+                    },
                     start_time: "unknown".to_string(), // Will be filled by process info
                     container: None,
                 });

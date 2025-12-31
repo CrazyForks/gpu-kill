@@ -159,7 +159,7 @@ impl GpuKillMCPServer {
                                     error!("Failed to handle HTTP request: {}", e);
                                     axum::response::Json(JsonRpcResponse {
                                         jsonrpc: "2.0".to_string(),
-                                        id: "error".to_string(),
+                                        id: crate::types::RequestId::Null, // Per JSON-RPC 2.0: use null when id cannot be determined
                                         result: None,
                                         error: Some(JsonRpcError {
                                             code: -32603,

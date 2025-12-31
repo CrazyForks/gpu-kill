@@ -6,7 +6,7 @@ members = [
 
 [package]
 name = "gpukill"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2021"
 authors = ["Kage <info@treadie.com>"]
 description = "A CLI tool for GPU management and monitoring supporting NVIDIA, AMD, Intel, and Apple Silicon GPUs"
@@ -51,6 +51,7 @@ futures-util = "0.3"
 # SSH remote support (using system SSH for now)
 # ssh2 = "0.9"
 # rpassword = "7.3"
+shell-escape = "0.1"
 
 
 # Apple Silicon GPU support

@@ -1,5 +1,6 @@
 use crate::nvml_api::{GpuInfo, GpuProc, GpuSnapshot};
 use anyhow::Result;
+use nvml_wrapper::enums::device::UsedGpuMemory;
 use serde::{Deserialize, Serialize};
 
 /// GPU vendor types
@@ -139,7 +140,10 @@ impl GpuVendorInterface for NvidiaVendor {
             pid: p.pid,
             user: "unknown".to_string(),
             proc_name: "unknown".to_string(),
-            used_mem_mb: 0, // Will be filled by process info
+            used_mem_mb: match p.used_gpu_memory {
+                UsedGpuMemory::Used(bytes) => (bytes / 1024 / 1024) as u32,
+                UsedGpuMemory::Unavailable => 0,
+            },
             start_time: "unknown".to_string(),
             container: None,
         });
@@ -176,7 +180,10 @@ impl GpuVendorInterface for NvidiaVendor {
                 pid: p.pid,
                 user: "unknown".to_string(),
                 proc_name: "unknown".to_string(),
-                used_mem_mb: 0, // Will be filled by process info
+                used_mem_mb: match p.used_gpu_memory {
+                    UsedGpuMemory::Used(bytes) => (bytes / 1024 / 1024) as u32,
+                    UsedGpuMemory::Unavailable => 0,
+                },
                 start_time: "unknown".to_string(),
                 container: None,
             });

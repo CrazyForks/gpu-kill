@@ -406,6 +406,8 @@ impl RogueConfigManager {
             max_utilization_pct: self.config.detection.max_utilization_pct,
             max_duration_hours: self.config.detection.max_duration_hours,
             min_confidence_threshold: self.config.detection.min_confidence_threshold,
+            user_whitelist: self.config.patterns.user_whitelist.clone(),
+            process_whitelist: self.config.patterns.process_whitelist.clone(),
         }
     }
 

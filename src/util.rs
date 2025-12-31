@@ -108,11 +108,16 @@ pub fn get_os_name() -> &'static str {
 }
 
 /// Truncate string to specified length with ellipsis
+///
+/// This function safely handles UTF-8 strings by counting characters
+/// instead of bytes, preventing panics on multi-byte characters.
 pub fn truncate_string(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
+    let char_count = s.chars().count();
+    if char_count <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+        let truncated: String = s.chars().take(max_len.saturating_sub(3)).collect();
+        format!("{}...", truncated)
     }
 }
 
@@ -156,6 +161,43 @@ mod tests {
         assert_eq!(truncate_string("short", 10), "short");
         assert_eq!(truncate_string("very long string", 10), "very lo...");
         assert_eq!(truncate_string("abc", 3), "abc");
+    }
+
+    #[test]
+    fn test_truncate_string_utf8() {
+        // Test with emoji (4-byte UTF-8 character)
+        // "GPU🔥温度高" has 7 characters but 16 bytes
+        let emoji_str = "GPU🔥温度高";
+        let result = truncate_string(emoji_str, 6); // 7 chars > 6, needs truncation
+        assert_eq!(result, "GPU..."); // 3 chars + "..."
+
+        // Test with Chinese characters (3-byte UTF-8 characters)
+        // "中文测试字符串" has 7 characters
+        let chinese = "中文测试字符串";
+        let result = truncate_string(chinese, 6);
+        assert_eq!(result, "中文测..."); // 3 chars + "..."
+
+        // Test with trademark symbol (3-byte UTF-8 character)
+        // "NVIDIA™ RTX 4090" has 16 characters
+        let gpu_name = "NVIDIA™ RTX 4090";
+        let result = truncate_string(gpu_name, 10);
+        assert_eq!(result, "NVIDIA™..."); // 7 chars + "..."
+
+        // Test string with UTF-8 that doesn't need truncation
+        let short_utf8 = "你好";
+        assert_eq!(truncate_string(short_utf8, 10), "你好");
+
+        // Verify no panic on strings that would panic with byte slicing
+        // This string has a multi-byte char where byte index 7 would be invalid
+        let trademark = "NVIDIA™ RTX";
+        let _ = truncate_string(trademark, 7); // Would panic before the fix
+
+        // Test edge case: max_len of 3 (just room for "...")
+        let any_str = "hello";
+        assert_eq!(truncate_string(any_str, 3), "...");
+
+        // Test edge case: max_len of 2 (less than ellipsis length)
+        assert_eq!(truncate_string(any_str, 2), "...");
     }
 
     #[test]

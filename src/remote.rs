@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use shell_escape::escape;
 use std::{
+    borrow::Cow,
     process::{Command, Stdio},
     time::Duration,
 };
@@ -60,70 +62,24 @@ impl SshRemote {
     }
 
     /// Execute a command on the remote host
+    ///
+    /// # Authentication
+    /// - SSH key authentication is preferred and works automatically
+    /// - Password authentication requires `sshpass` to be installed on the system,
+    ///   as SSH requires a TTY for interactive password prompts
     pub fn execute_command(&self, command: &str) -> Result<String> {
         debug!("Executing remote command: {}", command);
 
-        let mut ssh_cmd = Command::new("ssh");
-
-        // Add SSH options
-        ssh_cmd
-            .arg("-o")
-            .arg("ConnectTimeout=30")
-            .arg("-o")
-            .arg("StrictHostKeyChecking=no")
-            .arg("-o")
-            .arg("UserKnownHostsFile=/dev/null")
-            .arg("-o")
-            .arg("LogLevel=ERROR");
-
-        // Add port if not default
-        if self.config.port != 22 {
-            ssh_cmd.arg("-p").arg(self.config.port.to_string());
-        }
-
-        // Add key file if specified
-        if let Some(key_path) = &self.config.key_path {
-            ssh_cmd.arg("-i").arg(key_path);
-        }
-
-        // Add password authentication if specified
-        if self.config.password.is_some() {
-            ssh_cmd.arg("-o").arg("PasswordAuthentication=yes");
-        }
-
-        // Add host and command
+        // Build SSH options that are common to both sshpass and direct SSH
+        let timeout_secs = self.config.timeout.as_secs();
         let host_spec = format!("{}@{}", self.config.username, self.config.host);
-        ssh_cmd.arg(host_spec).arg(command);
 
-        // Set up input for password if needed
-        if let Some(_password) = &self.config.password {
-            ssh_cmd.stdin(Stdio::piped());
-        }
-
-        debug!("Running SSH command: {:?}", ssh_cmd);
-
-        let mut child = ssh_cmd
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to spawn SSH command")?;
-
-        // Send password if provided
-        if let Some(password) = &self.config.password {
-            if let Some(stdin) = child.stdin.as_mut() {
-                use std::io::Write;
-                stdin
-                    .write_all(password.as_bytes())
-                    .context("Failed to write password to SSH stdin")?;
-                stdin
-                    .write_all(b"\n")
-                    .context("Failed to write newline to SSH stdin")?;
-            }
-        }
-
-        let output = child
-            .wait_with_output()
-            .context("Failed to wait for SSH command")?;
+        // If password is provided, use sshpass (SSH requires TTY for password prompts)
+        let output = if let Some(password) = &self.config.password {
+            self.execute_with_sshpass(command, password, &host_spec, timeout_secs)?
+        } else {
+            self.execute_with_ssh(command, &host_spec, timeout_secs)?
+        };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -144,9 +100,121 @@ impl SshRemote {
         Ok(stdout)
     }
 
+    /// Execute command using sshpass for password authentication
+    ///
+    /// SSH does not read passwords from stdin - it requires a controlling TTY.
+    /// sshpass is a utility that provides password to SSH in a non-interactive way.
+    fn execute_with_sshpass(
+        &self,
+        command: &str,
+        password: &str,
+        host_spec: &str,
+        timeout_secs: u64,
+    ) -> Result<std::process::Output> {
+        // Check if sshpass is available
+        let sshpass_check = Command::new("which")
+            .arg("sshpass")
+            .output();
+
+        if sshpass_check.is_err() || !sshpass_check.unwrap().status.success() {
+            return Err(anyhow::anyhow!(
+                "Password authentication requires 'sshpass' to be installed. \
+                SSH requires a TTY for password prompts, which is not available in this context. \
+                Please install sshpass (e.g., 'apt install sshpass' or 'brew install sshpass') \
+                or use SSH key authentication instead (--ssh-key)."
+            ));
+        }
+
+        let mut cmd = Command::new("sshpass");
+        cmd.arg("-p").arg(password);
+        cmd.arg("ssh");
+
+        // Add SSH options
+        cmd.arg("-o")
+            .arg(format!("ConnectTimeout={}", timeout_secs))
+            .arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null")
+            .arg("-o")
+            .arg("LogLevel=ERROR")
+            .arg("-o")
+            .arg("PasswordAuthentication=yes")
+            .arg("-o")
+            .arg("PubkeyAuthentication=no");
+
+        // Add port if not default
+        if self.config.port != 22 {
+            cmd.arg("-p").arg(self.config.port.to_string());
+        }
+
+        // Add host and command
+        cmd.arg(host_spec).arg(command);
+
+        debug!("Running SSH command with sshpass: {:?}", cmd);
+
+        cmd.stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .context("Failed to execute sshpass command")
+    }
+
+    /// Execute command using direct SSH (key-based or agent authentication)
+    fn execute_with_ssh(
+        &self,
+        command: &str,
+        host_spec: &str,
+        timeout_secs: u64,
+    ) -> Result<std::process::Output> {
+        let mut ssh_cmd = Command::new("ssh");
+
+        // Add SSH options
+        ssh_cmd
+            .arg("-o")
+            .arg(format!("ConnectTimeout={}", timeout_secs))
+            .arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null")
+            .arg("-o")
+            .arg("LogLevel=ERROR");
+
+        // Add port if not default
+        if self.config.port != 22 {
+            ssh_cmd.arg("-p").arg(self.config.port.to_string());
+        }
+
+        // Add key file if specified
+        if let Some(key_path) = &self.config.key_path {
+            ssh_cmd.arg("-i").arg(key_path);
+        }
+
+        // Add host and command
+        ssh_cmd.arg(host_spec).arg(command);
+
+        debug!("Running SSH command: {:?}", ssh_cmd);
+
+        ssh_cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .context("Failed to execute SSH command")
+    }
+
     /// Execute gpukill command on remote host
+    ///
+    /// # Security
+    /// All arguments are properly shell-escaped to prevent command injection attacks.
+    /// User-controlled input (e.g., --filter, --audit-user, --audit-process) is safely
+    /// quoted before being passed to the remote shell.
     pub fn execute_gpukill(&self, args: &[String]) -> Result<String> {
-        let command = format!("gpukill {}", args.join(" "));
+        // Escape each argument to prevent shell metacharacter injection
+        // This prevents attacks like: --filter "python; rm -rf /"
+        let escaped_args: Vec<Cow<str>> = args
+            .iter()
+            .map(|arg| escape(Cow::Borrowed(arg.as_str())))
+            .collect();
+        let command = format!("gpukill {}", escaped_args.join(" "));
         self.execute_command(&command)
     }
 
@@ -222,6 +290,7 @@ pub fn execute_remote_operation(config: SshConfig, local_args: &[String]) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::borrow::Cow;
     use std::time::Duration;
 
     #[test]
@@ -243,5 +312,64 @@ mod tests {
         assert_eq!(config.key_path, Some("/path/to/key".to_string()));
         assert_eq!(config.password, Some("password".to_string()));
         assert_eq!(config.timeout, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_shell_escape_prevents_command_injection() {
+        // Test that shell metacharacters are properly escaped
+        let malicious_args = vec![
+            "--filter".to_string(),
+            "python; rm -rf /".to_string(), // Command injection attempt
+        ];
+
+        let escaped_args: Vec<Cow<str>> = malicious_args
+            .iter()
+            .map(|arg| escape(Cow::Borrowed(arg.as_str())))
+            .collect();
+        let command = format!("gpukill {}", escaped_args.join(" "));
+
+        // The semicolon and dangerous command should be escaped/quoted
+        // so they are treated as literal strings, not shell commands
+        assert!(
+            command.contains("'python; rm -rf /'") || command.contains("python\\; rm -rf /"),
+            "Command injection attempt should be escaped: {}",
+            command
+        );
+        // The command should NOT contain an unquoted semicolon that would
+        // allow command chaining
+        assert!(
+            !command.contains(" python; rm"),
+            "Unescaped semicolon would allow command injection: {}",
+            command
+        );
+    }
+
+    #[test]
+    fn test_shell_escape_various_metacharacters() {
+        // Test various shell metacharacters that could be used for injection
+        let test_cases = vec![
+            "test; whoami",       // Command chaining
+            "test | cat /etc/passwd", // Pipe
+            "test && touch /tmp/pwned", // AND operator
+            "test || touch /tmp/pwned", // OR operator
+            "$(whoami)",          // Command substitution
+            "`whoami`",           // Backtick substitution
+            "test > /tmp/file",   // Output redirection
+            "test < /etc/passwd", // Input redirection
+            "$HOME",              // Variable expansion
+            "test\nwhoami",       // Newline injection
+        ];
+
+        for malicious_input in test_cases {
+            let escaped = escape(Cow::Borrowed(malicious_input));
+            // After escaping, the string should be safe to pass to a shell
+            // It should either be quoted or have metacharacters escaped
+            assert!(
+                escaped.starts_with('\'') || escaped.contains('\\'),
+                "Input '{}' should be escaped, got: {}",
+                malicious_input,
+                escaped
+            );
+        }
     }
 }

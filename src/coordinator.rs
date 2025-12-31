@@ -9,7 +9,11 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
@@ -234,7 +238,10 @@ impl CoordinatorState {
     pub async fn get_contention_analysis(&self) -> Result<ContentionAnalysis> {
         let snapshots = self.snapshots.read().await;
         let mut blocked_gpus = Vec::new();
-        let mut user_stats: HashMap<String, (u32, u32, f32, u32)> = HashMap::new(); // (gpu_count, memory, util, processes)
+        // Track unique (node_id, gpu_index) pairs per user to correctly count GPUs
+        // Tuple: (unique_gpus, memory, utilization, process_count)
+        let mut user_stats: HashMap<String, (HashSet<(String, u16)>, u32, f32, u32)> =
+            HashMap::new();
 
         for (node_id, snapshot) in snapshots.iter() {
             for gpu in &snapshot.gpus {
@@ -266,8 +273,9 @@ impl CoordinatorState {
                 for process in &gpu_processes {
                     let entry = user_stats
                         .entry(process.user.clone())
-                        .or_insert((0, 0, 0.0, 0));
-                    entry.0 += 1; // gpu_count
+                        .or_insert((HashSet::new(), 0, 0.0, 0));
+                    // Track unique (node_id, gpu_index) pairs to correctly count GPUs
+                    entry.0.insert((node_id.clone(), gpu.gpu_index));
                     entry.1 += process.used_mem_mb; // memory
                     entry.2 += gpu.util_pct; // utilization (will average later)
                     entry.3 += 1; // process_count
@@ -279,9 +287,9 @@ impl CoordinatorState {
         let mut top_users: Vec<UserUsage> = user_stats
             .into_iter()
             .map(
-                |(user, (gpu_count, total_memory_mb, total_util, process_count))| UserUsage {
+                |(user, (gpu_set, total_memory_mb, total_util, process_count))| UserUsage {
                     user,
-                    gpu_count,
+                    gpu_count: gpu_set.len() as u32, // Count unique GPUs
                     total_memory_mb,
                     avg_utilization: total_util / process_count as f32,
                     process_count,
@@ -717,4 +725,239 @@ async fn test_guard_policies(
             "action_count": result.actions_taken.len()
         }
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vendor::GpuVendor;
+
+    #[tokio::test]
+    async fn test_contention_analysis_gpu_count_unique() {
+        let state = CoordinatorState::new();
+
+        // Scenario: User "alice" has 2 processes on GPU 0
+        // Expected: gpu_count should be 1 (alice is using 1 unique GPU)
+        let snapshot = NodeSnapshot {
+            node_id: "test-node".to_string(),
+            hostname: "test-host".to_string(),
+            timestamp: Utc::now(),
+            gpus: vec![GpuSnapshot {
+                gpu_index: 0,
+                name: "Test GPU".to_string(),
+                vendor: GpuVendor::Nvidia,
+                mem_used_mb: 8000,
+                mem_total_mb: 10000,
+                util_pct: 90.0,
+                temp_c: 75,
+                power_w: 200.0,
+                ecc_volatile: None,
+                pids: 2,
+                top_proc: None,
+            }],
+            processes: vec![
+                GpuProc {
+                    gpu_index: 0,
+                    pid: 1234,
+                    user: "alice".to_string(),
+                    proc_name: "process1".to_string(),
+                    used_mem_mb: 4000,
+                    start_time: "2025-09-20T01:00:00Z".to_string(),
+                    container: None,
+                },
+                GpuProc {
+                    gpu_index: 0,
+                    pid: 5678,
+                    user: "alice".to_string(),
+                    proc_name: "process2".to_string(),
+                    used_mem_mb: 4000,
+                    start_time: "2025-09-20T01:00:00Z".to_string(),
+                    container: None,
+                },
+            ],
+            status: NodeStatus::Online,
+        };
+
+        // Update the snapshot
+        state
+            .update_snapshot("test-node".to_string(), snapshot)
+            .await
+            .unwrap();
+
+        // Get contention analysis
+        let analysis = state.get_contention_analysis().await.unwrap();
+
+        // Find alice's stats
+        let alice_stats = analysis
+            .top_users
+            .iter()
+            .find(|u| u.user == "alice")
+            .expect("Alice should be in top users");
+
+        // Verify that gpu_count correctly reflects unique GPUs, not process count
+        assert_eq!(alice_stats.process_count, 2, "Alice has 2 processes");
+        assert_eq!(
+            alice_stats.gpu_count, 1,
+            "Alice uses 1 unique GPU, not 2 (one per process)"
+        );
+        assert_eq!(
+            alice_stats.total_memory_mb, 8000,
+            "Total memory is correct"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_contention_analysis_multi_gpu_multi_node() {
+        let state = CoordinatorState::new();
+
+        // Scenario: User "bob" has processes on GPU 0 and GPU 1 across two nodes
+        // Expected: gpu_count should be 4 (2 GPUs per node × 2 nodes)
+
+        // Node 1: bob has 2 processes on GPU 0, 1 process on GPU 1
+        let snapshot1 = NodeSnapshot {
+            node_id: "node-1".to_string(),
+            hostname: "host-1".to_string(),
+            timestamp: Utc::now(),
+            gpus: vec![
+                GpuSnapshot {
+                    gpu_index: 0,
+                    name: "GPU 0".to_string(),
+                    vendor: GpuVendor::Nvidia,
+                    mem_used_mb: 4000,
+                    mem_total_mb: 10000,
+                    util_pct: 50.0,
+                    temp_c: 70,
+                    power_w: 150.0,
+                    ecc_volatile: None,
+                    pids: 2,
+                    top_proc: None,
+                },
+                GpuSnapshot {
+                    gpu_index: 1,
+                    name: "GPU 1".to_string(),
+                    vendor: GpuVendor::Nvidia,
+                    mem_used_mb: 2000,
+                    mem_total_mb: 10000,
+                    util_pct: 25.0,
+                    temp_c: 65,
+                    power_w: 100.0,
+                    ecc_volatile: None,
+                    pids: 1,
+                    top_proc: None,
+                },
+            ],
+            processes: vec![
+                GpuProc {
+                    gpu_index: 0,
+                    pid: 1001,
+                    user: "bob".to_string(),
+                    proc_name: "train1".to_string(),
+                    used_mem_mb: 2000,
+                    start_time: "2025-09-20T01:00:00Z".to_string(),
+                    container: None,
+                },
+                GpuProc {
+                    gpu_index: 0,
+                    pid: 1002,
+                    user: "bob".to_string(),
+                    proc_name: "train2".to_string(),
+                    used_mem_mb: 2000,
+                    start_time: "2025-09-20T01:00:00Z".to_string(),
+                    container: None,
+                },
+                GpuProc {
+                    gpu_index: 1,
+                    pid: 1003,
+                    user: "bob".to_string(),
+                    proc_name: "train3".to_string(),
+                    used_mem_mb: 2000,
+                    start_time: "2025-09-20T01:00:00Z".to_string(),
+                    container: None,
+                },
+            ],
+            status: NodeStatus::Online,
+        };
+
+        // Node 2: bob has 1 process each on GPU 0 and GPU 1 (same indices as node 1)
+        let snapshot2 = NodeSnapshot {
+            node_id: "node-2".to_string(),
+            hostname: "host-2".to_string(),
+            timestamp: Utc::now(),
+            gpus: vec![
+                GpuSnapshot {
+                    gpu_index: 0,
+                    name: "GPU 0".to_string(),
+                    vendor: GpuVendor::Nvidia,
+                    mem_used_mb: 2000,
+                    mem_total_mb: 10000,
+                    util_pct: 30.0,
+                    temp_c: 60,
+                    power_w: 120.0,
+                    ecc_volatile: None,
+                    pids: 1,
+                    top_proc: None,
+                },
+                GpuSnapshot {
+                    gpu_index: 1,
+                    name: "GPU 1".to_string(),
+                    vendor: GpuVendor::Nvidia,
+                    mem_used_mb: 2000,
+                    mem_total_mb: 10000,
+                    util_pct: 30.0,
+                    temp_c: 60,
+                    power_w: 120.0,
+                    ecc_volatile: None,
+                    pids: 1,
+                    top_proc: None,
+                },
+            ],
+            processes: vec![
+                GpuProc {
+                    gpu_index: 0,
+                    pid: 2001,
+                    user: "bob".to_string(),
+                    proc_name: "train4".to_string(),
+                    used_mem_mb: 2000,
+                    start_time: "2025-09-20T01:00:00Z".to_string(),
+                    container: None,
+                },
+                GpuProc {
+                    gpu_index: 1,
+                    pid: 2002,
+                    user: "bob".to_string(),
+                    proc_name: "train5".to_string(),
+                    used_mem_mb: 2000,
+                    start_time: "2025-09-20T01:00:00Z".to_string(),
+                    container: None,
+                },
+            ],
+            status: NodeStatus::Online,
+        };
+
+        state
+            .update_snapshot("node-1".to_string(), snapshot1)
+            .await
+            .unwrap();
+        state
+            .update_snapshot("node-2".to_string(), snapshot2)
+            .await
+            .unwrap();
+
+        let analysis = state.get_contention_analysis().await.unwrap();
+
+        let bob_stats = analysis
+            .top_users
+            .iter()
+            .find(|u| u.user == "bob")
+            .expect("Bob should be in top users");
+
+        // Bob has 5 processes total
+        assert_eq!(bob_stats.process_count, 5, "Bob has 5 processes total");
+
+        // Bob uses 4 unique GPUs: (node-1, 0), (node-1, 1), (node-2, 0), (node-2, 1)
+        assert_eq!(
+            bob_stats.gpu_count, 4,
+            "Bob uses 4 unique GPUs across 2 nodes"
+        );
+    }
 }
