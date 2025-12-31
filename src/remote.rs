@@ -348,31 +348,73 @@ mod tests {
     #[test]
     fn test_shell_escape_various_metacharacters() {
         // Test various shell metacharacters that could be used for injection
-        let test_cases = vec![
-            "test; whoami",             // Command chaining
+        // Note: shell-escape handles platform differences - Unix uses single quotes,
+        // Windows uses double quotes or ^ escapes. Some characters (like $) don't
+        // need escaping on Windows since cmd.exe uses % for variables.
+
+        // Characters that need escaping on all platforms
+        let universal_cases = vec![
+            "test; whoami",             // Command chaining (semicolon)
             "test | cat /etc/passwd",   // Pipe
             "test && touch /tmp/pwned", // AND operator
             "test || touch /tmp/pwned", // OR operator
-            "$(whoami)",                // Command substitution
-            "`whoami`",                 // Backtick substitution
             "test > /tmp/file",         // Output redirection
             "test < /etc/passwd",       // Input redirection
-            "$HOME",                    // Variable expansion
             "test\nwhoami",             // Newline injection
         ];
 
-        for malicious_input in test_cases {
+        for malicious_input in universal_cases {
             let escaped = escape(Cow::Borrowed(malicious_input));
             // After escaping, the string should be safe to pass to a shell
-            // It should either be quoted (single on Unix, double on Windows) or have metacharacters escaped
+            // It should either be quoted or have metacharacters escaped
             assert!(
                 escaped.starts_with('\'')  // Unix single quote
                     || escaped.starts_with('"') // Windows double quote
-                    || escaped.contains('\\'), // Backslash escape
+                    || escaped.contains('\\') // Backslash escape
+                    || escaped.contains('^'), // Windows caret escape
                 "Input '{}' should be escaped, got: {}",
                 malicious_input,
                 escaped
             );
+        }
+
+        // Unix-specific: these characters need escaping on Unix but may not on Windows
+        #[cfg(unix)]
+        {
+            let unix_cases = vec![
+                "$(whoami)", // Command substitution (Unix $() syntax)
+                "`whoami`",  // Backtick substitution
+                "$HOME",     // Variable expansion (Unix $ syntax)
+            ];
+
+            for malicious_input in unix_cases {
+                let escaped = escape(Cow::Borrowed(malicious_input));
+                assert!(
+                    escaped.starts_with('\'') || escaped.contains('\\'),
+                    "Unix input '{}' should be escaped, got: {}",
+                    malicious_input,
+                    escaped
+                );
+            }
+        }
+
+        // Windows-specific: test that shell-escape handles Windows metacharacters
+        #[cfg(windows)]
+        {
+            let windows_cases = vec![
+                "%USERPROFILE%", // Windows variable expansion
+            ];
+
+            for input in windows_cases {
+                let escaped = escape(Cow::Borrowed(input));
+                // On Windows, % needs escaping for cmd.exe
+                assert!(
+                    escaped.starts_with('"') || escaped.contains('^') || escaped.contains("%%"),
+                    "Windows input '{}' should be escaped, got: {}",
+                    input,
+                    escaped
+                );
+            }
         }
     }
 }
