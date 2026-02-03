@@ -5,6 +5,7 @@ use crate::tools::ToolHandler;
 use crate::types::*;
 use crate::MCP_VERSION;
 use anyhow::Result;
+use axum::response::IntoResponse;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -29,8 +30,9 @@ impl GpuKillMCPServer {
     }
 
     /// Handle an MCP request
-    pub async fn handle_request(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
+    pub async fn handle_request(&self, request: JsonRpcRequest) -> Result<Option<JsonRpcResponse>> {
         debug!("Handling MCP request: {}", request.method);
+        let request_id = request.id.clone();
 
         let result = match request.method.as_str() {
             "initialize" => self.handle_initialize(request.params).await,
@@ -42,24 +44,24 @@ impl GpuKillMCPServer {
         };
 
         match result {
-            Ok(data) => Ok(JsonRpcResponse {
+            Ok(data) => Ok(request_id.map(|id| JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
-                id: request.id,
+                id,
                 result: Some(data),
                 error: None,
-            }),
+            })),
             Err(e) => {
                 error!("Error handling request {}: {}", request.method, e);
-                Ok(JsonRpcResponse {
+                Ok(request_id.map(|id| JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
-                    id: request.id,
+                    id,
                     result: None,
                     error: Some(JsonRpcError {
                         code: -32603,
                         message: "Internal error".to_string(),
                         data: Some(json!({ "details": e.to_string() })),
                     }),
-                })
+                }))
             }
         }
     }
@@ -107,7 +109,7 @@ impl GpuKillMCPServer {
             .ok_or_else(|| anyhow::anyhow!("Missing uri parameter"))?;
 
         let contents = self.resource_handler.get_resource(uri).await?;
-        Ok(json!({ "contents": contents }))
+        Ok(json!({ "contents": [contents] }))
     }
 
     async fn handle_tools_list(&self) -> Result<serde_json::Value> {
@@ -153,21 +155,14 @@ impl GpuKillMCPServer {
                     move |request: axum::extract::Json<JsonRpcRequest>| {
                         let server = server.clone();
                         async move {
-                            let request_id = request.0.id.clone();
                             match server.handle_request(request.0).await {
-                                Ok(response) => axum::response::Json(response),
+                                Ok(Some(response)) => {
+                                    axum::response::Json(response).into_response()
+                                }
+                                Ok(None) => axum::http::StatusCode::NO_CONTENT.into_response(),
                                 Err(e) => {
                                     error!("Failed to handle HTTP request: {}", e);
-                                    axum::response::Json(JsonRpcResponse {
-                                        jsonrpc: "2.0".to_string(),
-                                        id: request_id,
-                                        result: None,
-                                        error: Some(JsonRpcError {
-                                            code: -32603,
-                                            message: "Internal error".to_string(),
-                                            data: Some(json!({ "details": e.to_string() })),
-                                        }),
-                                    })
+                                    axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
                                 }
                             }
                         }

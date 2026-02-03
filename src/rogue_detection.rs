@@ -65,7 +65,7 @@ pub enum RiskLevel {
 }
 
 /// Types of resource abuse
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AbuseType {
     MemoryHog,
     LongRunning,
@@ -260,11 +260,10 @@ impl RogueDetector {
 
     /// Check if a process is whitelisted
     fn is_process_whitelisted(&self, process_name: &str) -> bool {
-        let process_lower = process_name.to_lowercase();
         self.detection_rules
             .process_whitelist
             .iter()
-            .any(|p| process_lower.contains(&p.to_lowercase()))
+            .any(|p| p.eq_ignore_ascii_case(process_name))
     }
 
     /// Detect crypto mining activity
@@ -320,7 +319,7 @@ impl RogueDetector {
 
         // Check for high GPU utilization
         if let Some(avg_util) = self.calculate_average_utilization(records) {
-            if avg_util > 90.0 {
+            if avg_util > self.detection_rules.max_utilization_pct {
                 indicators.push(format!("High GPU utilization: {:.1}%", avg_util));
                 confidence += 0.2;
             }
@@ -328,7 +327,7 @@ impl RogueDetector {
 
         // Check for sustained high memory usage
         if let Some(avg_memory) = self.calculate_average_memory_usage(records) {
-            if avg_memory > 8.0 {
+            if avg_memory > self.detection_rules.max_memory_usage_gb {
                 indicators.push(format!("High memory usage: {:.1} GB", avg_memory));
                 confidence += 0.1;
             }
@@ -492,24 +491,36 @@ impl RogueDetector {
         // Check for memory abuse
         if let Some(avg_memory) = self.calculate_average_memory_usage(records) {
             if avg_memory > self.detection_rules.max_memory_usage_gb {
-                abuse_type = AbuseType::MemoryHog;
-                severity = (avg_memory / self.detection_rules.max_memory_usage_gb).min(2.0);
+                let memory_severity =
+                    (avg_memory / self.detection_rules.max_memory_usage_gb).min(2.0);
+                if memory_severity > severity {
+                    abuse_type = AbuseType::MemoryHog;
+                    severity = memory_severity;
+                }
             }
         }
 
         // Check for excessive utilization
         if let Some(avg_util) = self.calculate_average_utilization(records) {
             if avg_util > self.detection_rules.max_utilization_pct {
-                abuse_type = AbuseType::ExcessiveUtilization;
-                severity = (avg_util / self.detection_rules.max_utilization_pct).min(2.0);
+                let util_severity =
+                    (avg_util / self.detection_rules.max_utilization_pct).min(2.0);
+                if util_severity > severity {
+                    abuse_type = AbuseType::ExcessiveUtilization;
+                    severity = util_severity;
+                }
             }
         }
 
         // Check for long-running processes
         if let Some(duration) = self.calculate_process_duration(records) {
             if duration > self.detection_rules.max_duration_hours {
-                abuse_type = AbuseType::LongRunning;
-                severity = (duration / self.detection_rules.max_duration_hours).min(2.0);
+                let duration_severity =
+                    (duration / self.detection_rules.max_duration_hours).min(2.0);
+                if duration_severity > severity {
+                    abuse_type = AbuseType::LongRunning;
+                    severity = duration_severity;
+                }
             }
         }
 
@@ -741,11 +752,119 @@ mod tests {
 
         // Test process whitelist checking
         assert!(detector.is_process_whitelisted("python"));
-        assert!(detector.is_process_whitelisted("python3.10"));
-        assert!(detector.is_process_whitelisted("jupyter-notebook"));
-        assert!(detector.is_process_whitelisted("tensorflow_training"));
-        assert!(detector.is_process_whitelisted("pytorch_model"));
+        assert!(!detector.is_process_whitelisted("python3.10"));
+        assert!(!detector.is_process_whitelisted("jupyter-notebook"));
+        assert!(!detector.is_process_whitelisted("tensorflow_training"));
+        assert!(!detector.is_process_whitelisted("pytorch_model"));
         assert!(!detector.is_process_whitelisted("xmrig"));
         assert!(!detector.is_process_whitelisted("suspicious_miner"));
+    }
+
+    #[tokio::test]
+    async fn test_crypto_miner_uses_configured_thresholds() {
+        use crate::audit::AuditRecord;
+        use chrono::Utc;
+
+        let rules = DetectionRules {
+            max_memory_usage_gb: 20.0,
+            max_utilization_pct: 95.0,
+            min_confidence_threshold: 0.1,
+            ..DetectionRules::default()
+        };
+        let detector = RogueDetector::with_rules(AuditManager::new().await.unwrap(), rules);
+
+        let now = Utc::now();
+        let records = vec![
+            AuditRecord {
+                id: 1,
+                timestamp: now,
+                gpu_index: 0,
+                gpu_name: "Test GPU".to_string(),
+                pid: Some(1234),
+                user: Some("user1".to_string()),
+                process_name: Some("miner".to_string()),
+                memory_used_mb: 19 * 1024,
+                utilization_pct: 94.0,
+                temperature_c: 70,
+                power_w: 150.0,
+                container: None,
+            },
+            AuditRecord {
+                id: 2,
+                timestamp: now + chrono::Duration::minutes(1),
+                gpu_index: 0,
+                gpu_name: "Test GPU".to_string(),
+                pid: Some(1234),
+                user: Some("user1".to_string()),
+                process_name: Some("miner".to_string()),
+                memory_used_mb: 19 * 1024,
+                utilization_pct: 94.0,
+                temperature_c: 70,
+                power_w: 150.0,
+                container: None,
+            },
+        ];
+
+        let miner = detector
+            .detect_crypto_miner(&records)
+            .expect("Should detect miner based on patterns");
+        assert!(
+            miner
+                .mining_indicators
+                .iter()
+                .all(|entry| !entry.contains("High GPU utilization") && !entry.contains("High memory usage"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resource_abuser_preserves_highest_severity() {
+        use crate::audit::AuditRecord;
+        use chrono::Utc;
+
+        let rules = DetectionRules {
+            max_memory_usage_gb: 20.0,
+            max_utilization_pct: 95.0,
+            ..DetectionRules::default()
+        };
+        let detector = RogueDetector::with_rules(AuditManager::new().await.unwrap(), rules);
+
+        let now = Utc::now();
+        let records = vec![
+            AuditRecord {
+                id: 1,
+                timestamp: now,
+                gpu_index: 0,
+                gpu_name: "Test GPU".to_string(),
+                pid: Some(1234),
+                user: Some("user1".to_string()),
+                process_name: Some("hog".to_string()),
+                memory_used_mb: 100 * 1024,
+                utilization_pct: 96.0,
+                temperature_c: 70,
+                power_w: 150.0,
+                container: None,
+            },
+            AuditRecord {
+                id: 2,
+                timestamp: now + chrono::Duration::minutes(1),
+                gpu_index: 0,
+                gpu_name: "Test GPU".to_string(),
+                pid: Some(1234),
+                user: Some("user1".to_string()),
+                process_name: Some("hog".to_string()),
+                memory_used_mb: 100 * 1024,
+                utilization_pct: 96.0,
+                temperature_c: 70,
+                power_w: 150.0,
+                container: None,
+            },
+        ];
+
+        let abuser = detector
+            .detect_resource_abuser(&records)
+            .expect("Should detect abuse");
+
+        assert_eq!(abuser.abuse_type, AbuseType::MemoryHog);
+        assert!(abuser.severity >= 2.0);
     }
 }

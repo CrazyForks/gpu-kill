@@ -146,10 +146,11 @@ impl CoordinatorState {
         // Update node last seen
         {
             let mut nodes = self.nodes.write().await;
-            if let Some(node) = nodes.get_mut(&node_id) {
-                node.last_seen = Utc::now();
-                node.status = NodeStatus::Online;
-            }
+            let node = nodes
+                .get_mut(&node_id)
+                .ok_or_else(|| anyhow::anyhow!("Node {} is not registered", node_id))?;
+            node.last_seen = Utc::now();
+            node.status = NodeStatus::Online;
         }
 
         // Store snapshot
@@ -236,6 +237,7 @@ impl CoordinatorState {
 
     /// Get contention analysis (Magic Moment)
     pub async fn get_contention_analysis(&self) -> Result<ContentionAnalysis> {
+        let nodes = self.nodes.read().await;
         let snapshots = self.snapshots.read().await;
         let mut blocked_gpus = Vec::new();
         // Track unique (node_id, gpu_index) pairs per user to correctly count GPUs
@@ -244,7 +246,10 @@ impl CoordinatorState {
         let mut user_stats: HashMap<String, (HashSet<(String, u16)>, u32, f32, u32)> =
             HashMap::new();
 
-        for (node_id, snapshot) in snapshots.iter() {
+        for (node_id, _node_info) in nodes.iter() {
+            let Some(snapshot) = snapshots.get(node_id) else {
+                continue;
+            };
             for gpu in &snapshot.gpus {
                 // Find processes using this GPU
                 let gpu_processes: Vec<GpuProc> = snapshot
@@ -349,6 +354,8 @@ impl CoordinatorState {
             snapshots.remove(&node_id);
         }
 
+        snapshots.retain(|node_id, _| nodes.contains_key(node_id));
+
         Ok(())
     }
 }
@@ -400,11 +407,16 @@ async fn update_snapshot(
     Path(node_id): Path<String>,
     Json(snapshot): Json<NodeSnapshot>,
 ) -> Result<Json<()>, StatusCode> {
-    state
-        .update_snapshot(node_id, snapshot)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(()))
+    match state.update_snapshot(node_id, snapshot).await {
+        Ok(()) => Ok(Json(())),
+        Err(e) => {
+            if e.to_string().contains("not registered") {
+                Err(StatusCode::NOT_FOUND)
+            } else {
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
+    }
 }
 
 /// Get cluster snapshot
@@ -740,6 +752,7 @@ async fn test_guard_policies(
 mod tests {
     use super::*;
     use crate::vendor::GpuVendor;
+    use std::collections::HashMap;
 
     #[tokio::test]
     async fn test_contention_analysis_gpu_count_unique() {
@@ -786,6 +799,20 @@ mod tests {
             ],
             status: NodeStatus::Online,
         };
+
+        state
+            .register_node(NodeInfo {
+                id: "test-node".to_string(),
+                hostname: "test-host".to_string(),
+                ip_address: "127.0.0.1".to_string(),
+                last_seen: Utc::now(),
+                status: NodeStatus::Online,
+                gpu_count: 1,
+                total_memory_gb: 9.8,
+                tags: HashMap::new(),
+            })
+            .await
+            .unwrap();
 
         // Update the snapshot
         state
@@ -941,6 +968,33 @@ mod tests {
         };
 
         state
+            .register_node(NodeInfo {
+                id: "node-1".to_string(),
+                hostname: "host-1".to_string(),
+                ip_address: "10.0.0.1".to_string(),
+                last_seen: Utc::now(),
+                status: NodeStatus::Online,
+                gpu_count: 2,
+                total_memory_gb: 19.5,
+                tags: HashMap::new(),
+            })
+            .await
+            .unwrap();
+        state
+            .register_node(NodeInfo {
+                id: "node-2".to_string(),
+                hostname: "host-2".to_string(),
+                ip_address: "10.0.0.2".to_string(),
+                last_seen: Utc::now(),
+                status: NodeStatus::Online,
+                gpu_count: 2,
+                total_memory_gb: 19.5,
+                tags: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        state
             .update_snapshot("node-1".to_string(), snapshot1)
             .await
             .unwrap();
@@ -1036,6 +1090,20 @@ mod tests {
         };
 
         state
+            .register_node(NodeInfo {
+                id: "test-node".to_string(),
+                hostname: "test-host".to_string(),
+                ip_address: "127.0.0.1".to_string(),
+                last_seen: Utc::now(),
+                status: NodeStatus::Online,
+                gpu_count: 2,
+                total_memory_gb: 19.5,
+                tags: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        state
             .update_snapshot("test-node".to_string(), snapshot)
             .await
             .unwrap();
@@ -1057,5 +1125,27 @@ mod tests {
             diff < 0.01,
             "Average utilization should be calculated per unique GPU"
         );
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_rejected_for_unregistered_node() {
+        let state = CoordinatorState::new();
+
+        let snapshot = NodeSnapshot {
+            node_id: "rogue-node".to_string(),
+            hostname: "rogue-host".to_string(),
+            timestamp: Utc::now(),
+            gpus: vec![],
+            processes: vec![],
+            status: NodeStatus::Online,
+        };
+
+        let result = state
+            .update_snapshot("rogue-node".to_string(), snapshot)
+            .await;
+        assert!(result.is_err());
+
+        let snapshots = state.snapshots.read().await;
+        assert!(!snapshots.contains_key("rogue-node"));
     }
 }

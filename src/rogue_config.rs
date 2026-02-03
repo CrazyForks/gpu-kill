@@ -434,8 +434,15 @@ impl RogueConfigManager {
 
     /// Add a user to the whitelist
     pub fn add_user_to_whitelist(&mut self, user: String) -> Result<()> {
-        if !self.config.patterns.user_whitelist.contains(&user) {
-            self.config.patterns.user_whitelist.push(user);
+        let user_lower = user.to_lowercase();
+        if !self
+            .config
+            .patterns
+            .user_whitelist
+            .iter()
+            .any(|u| u.eq_ignore_ascii_case(&user_lower))
+        {
+            self.config.patterns.user_whitelist.push(user_lower);
             self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
             Self::save_config(&self.config_path, &self.config)?;
         }
@@ -444,7 +451,10 @@ impl RogueConfigManager {
 
     /// Remove a user from the whitelist
     pub fn remove_user_from_whitelist(&mut self, user: &str) -> Result<()> {
-        self.config.patterns.user_whitelist.retain(|u| u != user);
+        self.config
+            .patterns
+            .user_whitelist
+            .retain(|u| !u.eq_ignore_ascii_case(user));
         self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
         Self::save_config(&self.config_path, &self.config)?;
         Ok(())
@@ -452,8 +462,15 @@ impl RogueConfigManager {
 
     /// Add a process to the whitelist
     pub fn add_process_to_whitelist(&mut self, process: String) -> Result<()> {
-        if !self.config.patterns.process_whitelist.contains(&process) {
-            self.config.patterns.process_whitelist.push(process);
+        let process_lower = process.to_lowercase();
+        if !self
+            .config
+            .patterns
+            .process_whitelist
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(&process_lower))
+        {
+            self.config.patterns.process_whitelist.push(process_lower);
             self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
             Self::save_config(&self.config_path, &self.config)?;
         }
@@ -465,7 +482,7 @@ impl RogueConfigManager {
         self.config
             .patterns
             .process_whitelist
-            .retain(|p| p != process);
+            .retain(|p| !p.eq_ignore_ascii_case(process));
         self.config.metadata.last_modified = chrono::Utc::now().to_rfc3339();
         Self::save_config(&self.config_path, &self.config)?;
         Ok(())
@@ -551,6 +568,7 @@ impl RogueConfigManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn test_default_config() {
@@ -569,5 +587,32 @@ mod tests {
             config.detection.max_memory_usage_gb,
             deserialized.detection.max_memory_usage_gb
         );
+    }
+
+    #[test]
+    fn test_whitelist_case_insensitive_management() {
+        let temp_dir = tempdir().unwrap();
+        std::env::set_var("HOME", temp_dir.path());
+        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+
+        let mut manager = RogueConfigManager::new().unwrap();
+
+        manager.add_user_to_whitelist("Root".to_string()).unwrap();
+        manager.add_user_to_whitelist("root".to_string()).unwrap();
+        manager.remove_user_from_whitelist("ROOT").unwrap();
+
+        let users = &manager.get_config().patterns.user_whitelist;
+        assert!(!users.iter().any(|u| u.eq_ignore_ascii_case("root")));
+
+        manager
+            .add_process_to_whitelist("Python".to_string())
+            .unwrap();
+        manager
+            .add_process_to_whitelist("python".to_string())
+            .unwrap();
+        manager.remove_process_from_whitelist("PYTHON").unwrap();
+
+        let processes = &manager.get_config().patterns.process_whitelist;
+        assert!(!processes.iter().any(|p| p.eq_ignore_ascii_case("python")));
     }
 }

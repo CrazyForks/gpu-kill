@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -353,6 +353,13 @@ pub struct GuardModeManager {
     warning_history: Vec<PolicyWarning>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct TimeMultipliers {
+    memory: f32,
+    utilization: f32,
+    duration: f32,
+}
+
 impl GuardModeManager {
     /// Create a new guard mode manager
     pub fn new() -> Result<Self> {
@@ -534,6 +541,8 @@ impl GuardModeManager {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
         let mut actions_taken = Vec::new();
+        let now = Utc::now();
+        let time_multipliers = self.get_time_multipliers(now);
 
         // Group processes by user
         let mut user_processes: HashMap<String, Vec<&GpuProc>> = HashMap::new();
@@ -546,11 +555,21 @@ impl GuardModeManager {
 
         // Check each user's processes
         for (username, user_procs) in user_processes {
-            let user_result = self.check_user_policies(&username, &user_procs)?;
+            let user_result =
+                self.check_user_policies(&username, &user_procs, now, time_multipliers)?;
             violations.extend(user_result.violations);
             warnings.extend(user_result.warnings);
             actions_taken.extend(user_result.actions_taken);
         }
+
+        self.check_group_policies(processes, time_multipliers, &mut violations, &mut warnings);
+        self.check_gpu_policies(
+            processes,
+            now,
+            time_multipliers,
+            &mut violations,
+            &mut warnings,
+        );
 
         // In dry-run mode, simulate actions without actually taking them
         if self.config.global.dry_run {
@@ -578,13 +597,17 @@ impl GuardModeManager {
         &mut self,
         username: &str,
         processes: &[&GpuProc],
+        now: DateTime<Utc>,
+        time_multipliers: TimeMultipliers,
     ) -> Result<EnforcementResult> {
         let mut violations = Vec::new();
         let mut warnings = Vec::new();
         let actions_taken = Vec::new();
 
         // Get user policy (or use defaults)
-        let user_policy = self.get_user_policy(username);
+        let mut user_policy = self.get_user_policy(username);
+        self.apply_time_overrides(&mut user_policy, now);
+        self.apply_time_multipliers(&mut user_policy, time_multipliers);
 
         // Check memory limits
         let total_memory = processes
@@ -622,6 +645,41 @@ impl GuardModeManager {
                 ),
                 time_to_limit: None,
             });
+        }
+
+        // Check utilization limits (based on memory usage percentage)
+        if user_policy.memory_limit_gb > 0.0 {
+            let utilization_pct = (total_memory / user_policy.memory_limit_gb) * 100.0;
+            if utilization_pct > user_policy.utilization_limit_pct {
+                violations.push(PolicyViolation {
+                    violation_type: ViolationType::UtilizationLimitExceeded,
+                    severity: ViolationSeverity::High,
+                    user: username.to_string(),
+                    process: processes[0].clone(),
+                    policy_name: "utilization_limit".to_string(),
+                    current_value: utilization_pct,
+                    limit_value: user_policy.utilization_limit_pct,
+                    message: format!(
+                        "User {} exceeded utilization limit: {:.1}% > {:.1}%",
+                        username, utilization_pct, user_policy.utilization_limit_pct
+                    ),
+                    recommended_action: "Reduce GPU workload or request higher limit".to_string(),
+                });
+            } else if utilization_pct > user_policy.utilization_limit_pct * 0.8 {
+                warnings.push(PolicyWarning {
+                    warning_type: WarningType::ApproachingUtilizationLimit,
+                    user: username.to_string(),
+                    process: processes[0].clone(),
+                    policy_name: "utilization_limit".to_string(),
+                    current_value: utilization_pct,
+                    limit_value: user_policy.utilization_limit_pct,
+                    message: format!(
+                        "User {} approaching utilization limit: {:.1}% / {:.1}%",
+                        username, utilization_pct, user_policy.utilization_limit_pct
+                    ),
+                    time_to_limit: None,
+                });
+            }
         }
 
         // Check concurrent process limits
@@ -684,6 +742,43 @@ impl GuardModeManager {
             }
         }
 
+        // Check duration limits per process
+        for process in processes {
+            if let Some(duration_hours) = parse_duration_hours(&process.start_time, now) {
+                if duration_hours > user_policy.duration_limit_hours {
+                    violations.push(PolicyViolation {
+                        violation_type: ViolationType::DurationLimitExceeded,
+                        severity: ViolationSeverity::Medium,
+                        user: username.to_string(),
+                        process: (*process).clone(),
+                        policy_name: "duration_limit".to_string(),
+                        current_value: duration_hours,
+                        limit_value: user_policy.duration_limit_hours,
+                        message: format!(
+                            "User {} exceeded duration limit: {:.1}h > {:.1}h",
+                            username, duration_hours, user_policy.duration_limit_hours
+                        ),
+                        recommended_action: "Terminate long-running process or request extension"
+                            .to_string(),
+                    });
+                } else if duration_hours > user_policy.duration_limit_hours * 0.8 {
+                    warnings.push(PolicyWarning {
+                        warning_type: WarningType::ApproachingDurationLimit,
+                        user: username.to_string(),
+                        process: (*process).clone(),
+                        policy_name: "duration_limit".to_string(),
+                        current_value: duration_hours,
+                        limit_value: user_policy.duration_limit_hours,
+                        message: format!(
+                            "User {} approaching duration limit: {:.1}h / {:.1}h",
+                            username, duration_hours, user_policy.duration_limit_hours
+                        ),
+                        time_to_limit: None,
+                    });
+                }
+            }
+        }
+
         Ok(EnforcementResult {
             timestamp: Utc::now(),
             violations,
@@ -709,6 +804,375 @@ impl GuardModeManager {
                 allowed_gpus: Vec::new(), // Allow all GPUs by default
                 blocked_gpus: Vec::new(),
                 time_overrides: Vec::new(),
+            }
+        }
+    }
+
+    fn get_time_multipliers(&self, now: DateTime<Utc>) -> TimeMultipliers {
+        let mut multipliers = TimeMultipliers {
+            memory: 1.0,
+            utilization: 1.0,
+            duration: 1.0,
+        };
+
+        for policy in &self.config.time_policies {
+            if is_time_window_active(
+                now,
+                &policy.start_time,
+                &policy.end_time,
+                &policy.days_of_week,
+            ) {
+                multipliers.memory *= policy.memory_multiplier;
+                multipliers.utilization *= policy.utilization_multiplier;
+                multipliers.duration *= policy.duration_multiplier;
+            }
+        }
+
+        multipliers
+    }
+
+    fn apply_time_overrides(&self, policy: &mut UserPolicy, now: DateTime<Utc>) {
+        for override_rule in &policy.time_overrides {
+            if is_time_window_active(
+                now,
+                &override_rule.start_time,
+                &override_rule.end_time,
+                &override_rule.days_of_week,
+            ) {
+                if let Some(limit) = override_rule.overrides.memory_limit_gb {
+                    policy.memory_limit_gb = limit;
+                }
+                if let Some(limit) = override_rule.overrides.utilization_limit_pct {
+                    policy.utilization_limit_pct = limit;
+                }
+                if let Some(limit) = override_rule.overrides.duration_limit_hours {
+                    policy.duration_limit_hours = limit;
+                }
+                if let Some(limit) = override_rule.overrides.max_concurrent_processes {
+                    policy.max_concurrent_processes = limit;
+                }
+            }
+        }
+    }
+
+    fn apply_time_multipliers(&self, policy: &mut UserPolicy, multipliers: TimeMultipliers) {
+        policy.memory_limit_gb *= multipliers.memory;
+        policy.utilization_limit_pct *= multipliers.utilization;
+        policy.duration_limit_hours *= multipliers.duration;
+    }
+
+    fn check_group_policies(
+        &self,
+        processes: &[GpuProc],
+        time_multipliers: TimeMultipliers,
+        violations: &mut Vec<PolicyViolation>,
+        warnings: &mut Vec<PolicyWarning>,
+    ) {
+        for (group_name, group_policy) in &self.config.group_policies {
+            let group_processes: Vec<&GpuProc> = processes
+                .iter()
+                .filter(|p| group_policy.members.contains(&p.user))
+                .collect();
+
+            if group_processes.is_empty() {
+                continue;
+            }
+
+            let total_memory = group_processes
+                .iter()
+                .map(|p| p.used_mem_mb as f32 / 1024.0)
+                .sum::<f32>();
+
+            let effective_memory_limit =
+                group_policy.total_memory_limit_gb * time_multipliers.memory;
+            if total_memory > effective_memory_limit {
+                violations.push(PolicyViolation {
+                    violation_type: ViolationType::MemoryLimitExceeded,
+                    severity: ViolationSeverity::High,
+                    user: group_name.clone(),
+                    process: group_processes[0].clone(),
+                    policy_name: "group_memory_limit".to_string(),
+                    current_value: total_memory,
+                    limit_value: effective_memory_limit,
+                    message: format!(
+                        "Group {} exceeded memory limit: {:.1}GB > {:.1}GB",
+                        group_name, total_memory, effective_memory_limit
+                    ),
+                    recommended_action: "Reduce group GPU usage or adjust limits".to_string(),
+                });
+            } else if total_memory > effective_memory_limit * 0.8 {
+                warnings.push(PolicyWarning {
+                    warning_type: WarningType::ApproachingMemoryLimit,
+                    user: group_name.clone(),
+                    process: group_processes[0].clone(),
+                    policy_name: "group_memory_limit".to_string(),
+                    current_value: total_memory,
+                    limit_value: effective_memory_limit,
+                    message: format!(
+                        "Group {} approaching memory limit: {:.1}GB / {:.1}GB",
+                        group_name, total_memory, effective_memory_limit
+                    ),
+                    time_to_limit: None,
+                });
+            }
+
+            if group_policy.total_memory_limit_gb > 0.0 {
+                let utilization_pct = (total_memory / group_policy.total_memory_limit_gb) * 100.0;
+                let limit = group_policy.total_utilization_limit_pct * time_multipliers.utilization;
+                if utilization_pct > limit {
+                    violations.push(PolicyViolation {
+                        violation_type: ViolationType::UtilizationLimitExceeded,
+                        severity: ViolationSeverity::Medium,
+                        user: group_name.clone(),
+                        process: group_processes[0].clone(),
+                        policy_name: "group_utilization_limit".to_string(),
+                        current_value: utilization_pct,
+                        limit_value: limit,
+                        message: format!(
+                            "Group {} exceeded utilization limit: {:.1}% > {:.1}%",
+                            group_name, utilization_pct, limit
+                        ),
+                        recommended_action: "Reduce group GPU workload".to_string(),
+                    });
+                } else if utilization_pct > limit * 0.8 {
+                    warnings.push(PolicyWarning {
+                        warning_type: WarningType::ApproachingUtilizationLimit,
+                        user: group_name.clone(),
+                        process: group_processes[0].clone(),
+                        policy_name: "group_utilization_limit".to_string(),
+                        current_value: utilization_pct,
+                        limit_value: limit,
+                        message: format!(
+                            "Group {} approaching utilization limit: {:.1}% / {:.1}%",
+                            group_name, utilization_pct, limit
+                        ),
+                        time_to_limit: None,
+                    });
+                }
+            }
+
+            if group_processes.len() as u32 > group_policy.max_concurrent_processes {
+                violations.push(PolicyViolation {
+                    violation_type: ViolationType::ConcurrentProcessLimitExceeded,
+                    severity: ViolationSeverity::Medium,
+                    user: group_name.clone(),
+                    process: group_processes[0].clone(),
+                    policy_name: "group_concurrent_processes".to_string(),
+                    current_value: group_processes.len() as f32,
+                    limit_value: group_policy.max_concurrent_processes as f32,
+                    message: format!(
+                        "Group {} exceeded concurrent process limit: {} > {}",
+                        group_name,
+                        group_processes.len(),
+                        group_policy.max_concurrent_processes
+                    ),
+                    recommended_action: "Reduce concurrent processes for group".to_string(),
+                });
+            }
+
+            for process in group_processes {
+                if !group_policy.allowed_gpus.is_empty()
+                    && !group_policy.allowed_gpus.contains(&process.gpu_index)
+                {
+                    violations.push(PolicyViolation {
+                        violation_type: ViolationType::UnauthorizedGpuAccess,
+                        severity: ViolationSeverity::High,
+                        user: group_name.clone(),
+                        process: process.clone(),
+                        policy_name: "group_gpu_access".to_string(),
+                        current_value: process.gpu_index as f32,
+                        limit_value: group_policy.allowed_gpus[0] as f32,
+                        message: format!(
+                            "Group {} accessing unauthorized GPU: {}",
+                            group_name, process.gpu_index
+                        ),
+                        recommended_action: "Move workload to allowed GPUs".to_string(),
+                    });
+                }
+
+                if group_policy.blocked_gpus.contains(&process.gpu_index) {
+                    violations.push(PolicyViolation {
+                        violation_type: ViolationType::UnauthorizedGpuAccess,
+                        severity: ViolationSeverity::Critical,
+                        user: group_name.clone(),
+                        process: process.clone(),
+                        policy_name: "group_blocked_gpu".to_string(),
+                        current_value: process.gpu_index as f32,
+                        limit_value: -1.0,
+                        message: format!(
+                            "Group {} accessing blocked GPU: {}",
+                            group_name, process.gpu_index
+                        ),
+                        recommended_action: "Immediately terminate process".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    fn check_gpu_policies(
+        &self,
+        processes: &[GpuProc],
+        now: DateTime<Utc>,
+        time_multipliers: TimeMultipliers,
+        violations: &mut Vec<PolicyViolation>,
+        warnings: &mut Vec<PolicyWarning>,
+    ) {
+        let mut processes_by_gpu: HashMap<u16, Vec<&GpuProc>> = HashMap::new();
+        for process in processes {
+            processes_by_gpu
+                .entry(process.gpu_index)
+                .or_default()
+                .push(process);
+        }
+
+        for policy in self.config.gpu_policies.values() {
+            let gpu_processes = match processes_by_gpu.get(&policy.gpu_index) {
+                Some(processes) => processes,
+                None => continue,
+            };
+
+            if let Some(window) = &policy.maintenance_window {
+                if is_time_window_active(
+                    now,
+                    &window.start_time,
+                    &window.end_time,
+                    &window.days_of_week,
+                ) {
+                    for process in gpu_processes {
+                        violations.push(PolicyViolation {
+                            violation_type: ViolationType::MaintenanceWindowViolation,
+                            severity: ViolationSeverity::Critical,
+                            user: process.user.clone(),
+                            process: (*process).clone(),
+                            policy_name: "gpu_maintenance_window".to_string(),
+                            current_value: 1.0,
+                            limit_value: 0.0,
+                            message: format!(
+                                "GPU {} is in maintenance window: {}",
+                                policy.gpu_index, window.message
+                            ),
+                            recommended_action: "Terminate processes and retry after maintenance"
+                                .to_string(),
+                        });
+                    }
+                }
+            }
+
+            let total_memory = gpu_processes
+                .iter()
+                .map(|p| p.used_mem_mb as f32 / 1024.0)
+                .sum::<f32>();
+            let effective_max_memory = (policy.max_memory_gb - policy.reserved_memory_gb).max(0.0)
+                * time_multipliers.memory;
+
+            if total_memory > effective_max_memory {
+                let representative = gpu_processes.iter().max_by_key(|p| p.used_mem_mb).unwrap();
+                violations.push(PolicyViolation {
+                    violation_type: ViolationType::MemoryLimitExceeded,
+                    severity: ViolationSeverity::High,
+                    user: representative.user.clone(),
+                    process: (*representative).clone(),
+                    policy_name: "gpu_memory_limit".to_string(),
+                    current_value: total_memory,
+                    limit_value: effective_max_memory,
+                    message: format!(
+                        "GPU {} exceeded memory limit: {:.1}GB > {:.1}GB",
+                        policy.gpu_index, total_memory, effective_max_memory
+                    ),
+                    recommended_action: "Reduce memory usage on GPU".to_string(),
+                });
+            } else if total_memory > effective_max_memory * 0.8 {
+                let representative = gpu_processes.iter().max_by_key(|p| p.used_mem_mb).unwrap();
+                warnings.push(PolicyWarning {
+                    warning_type: WarningType::ApproachingMemoryLimit,
+                    user: representative.user.clone(),
+                    process: (*representative).clone(),
+                    policy_name: "gpu_memory_limit".to_string(),
+                    current_value: total_memory,
+                    limit_value: effective_max_memory,
+                    message: format!(
+                        "GPU {} approaching memory limit: {:.1}GB / {:.1}GB",
+                        policy.gpu_index, total_memory, effective_max_memory
+                    ),
+                    time_to_limit: None,
+                });
+            }
+
+            if policy.max_memory_gb > 0.0 {
+                let utilization_pct = (total_memory / policy.max_memory_gb) * 100.0;
+                let limit = policy.max_utilization_pct * time_multipliers.utilization;
+                if utilization_pct > limit {
+                    let representative =
+                        gpu_processes.iter().max_by_key(|p| p.used_mem_mb).unwrap();
+                    violations.push(PolicyViolation {
+                        violation_type: ViolationType::UtilizationLimitExceeded,
+                        severity: ViolationSeverity::Medium,
+                        user: representative.user.clone(),
+                        process: (*representative).clone(),
+                        policy_name: "gpu_utilization_limit".to_string(),
+                        current_value: utilization_pct,
+                        limit_value: limit,
+                        message: format!(
+                            "GPU {} exceeded utilization limit: {:.1}% > {:.1}%",
+                            policy.gpu_index, utilization_pct, limit
+                        ),
+                        recommended_action: "Reduce GPU workload".to_string(),
+                    });
+                } else if utilization_pct > limit * 0.8 {
+                    let representative =
+                        gpu_processes.iter().max_by_key(|p| p.used_mem_mb).unwrap();
+                    warnings.push(PolicyWarning {
+                        warning_type: WarningType::ApproachingUtilizationLimit,
+                        user: representative.user.clone(),
+                        process: (*representative).clone(),
+                        policy_name: "gpu_utilization_limit".to_string(),
+                        current_value: utilization_pct,
+                        limit_value: limit,
+                        message: format!(
+                            "GPU {} approaching utilization limit: {:.1}% / {:.1}%",
+                            policy.gpu_index, utilization_pct, limit
+                        ),
+                        time_to_limit: None,
+                    });
+                }
+            }
+
+            for process in gpu_processes {
+                if !policy.allowed_users.is_empty() && !policy.allowed_users.contains(&process.user)
+                {
+                    violations.push(PolicyViolation {
+                        violation_type: ViolationType::UnauthorizedUserAccess,
+                        severity: ViolationSeverity::High,
+                        user: process.user.clone(),
+                        process: (*process).clone(),
+                        policy_name: "gpu_allowed_users".to_string(),
+                        current_value: 1.0,
+                        limit_value: 0.0,
+                        message: format!(
+                            "User {} is not allowed on GPU {}",
+                            process.user, policy.gpu_index
+                        ),
+                        recommended_action: "Terminate process or update GPU policy".to_string(),
+                    });
+                }
+
+                if policy.blocked_users.contains(&process.user) {
+                    violations.push(PolicyViolation {
+                        violation_type: ViolationType::UnauthorizedUserAccess,
+                        severity: ViolationSeverity::Critical,
+                        user: process.user.clone(),
+                        process: (*process).clone(),
+                        policy_name: "gpu_blocked_users".to_string(),
+                        current_value: 1.0,
+                        limit_value: 0.0,
+                        message: format!(
+                            "User {} is blocked from GPU {}",
+                            process.user, policy.gpu_index
+                        ),
+                        recommended_action: "Immediately terminate process".to_string(),
+                    });
+                }
             }
         }
     }
@@ -946,6 +1410,71 @@ impl GuardModeManager {
     }
 }
 
+fn is_time_window_active(
+    now: DateTime<Utc>,
+    start_time: &str,
+    end_time: &str,
+    days_of_week: &[u8],
+) -> bool {
+    if let (Ok(start), Ok(end)) = (
+        chrono::NaiveTime::parse_from_str(start_time, "%H:%M"),
+        chrono::NaiveTime::parse_from_str(end_time, "%H:%M"),
+    ) {
+        let weekday = now.weekday().num_days_from_sunday() as u8;
+        let day_match = days_of_week.is_empty() || days_of_week.contains(&weekday);
+        if !day_match {
+            return false;
+        }
+
+        let now_time = now.time();
+        if start <= end {
+            now_time >= start && now_time <= end
+        } else {
+            now_time >= start || now_time <= end
+        }
+    } else {
+        false
+    }
+}
+
+fn parse_duration_hours(start_time: &str, now: DateTime<Utc>) -> Option<f32> {
+    if start_time == "unknown" {
+        return None;
+    }
+
+    if let Ok(parsed) = DateTime::parse_from_rfc3339(start_time) {
+        let start = parsed.with_timezone(&Utc);
+        let duration = now.signed_duration_since(start);
+        return Some(duration.num_seconds() as f32 / 3600.0);
+    }
+
+    let mut hours = 0.0;
+    let mut minutes = 0.0;
+    let mut seconds = 0.0;
+
+    for token in start_time.split_whitespace() {
+        if let Some(value) = token.strip_suffix('h') {
+            if let Ok(parsed) = value.parse::<f32>() {
+                hours += parsed;
+            }
+        } else if let Some(value) = token.strip_suffix('m') {
+            if let Ok(parsed) = value.parse::<f32>() {
+                minutes += parsed;
+            }
+        } else if let Some(value) = token.strip_suffix('s') {
+            if let Ok(parsed) = value.parse::<f32>() {
+                seconds += parsed;
+            }
+        }
+    }
+
+    if hours == 0.0 && minutes == 0.0 && seconds == 0.0 {
+        None
+    } else {
+        Some(hours + minutes / 60.0 + seconds / 3600.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -971,5 +1500,47 @@ mod tests {
         let user_policy = manager.get_user_policy("testuser");
         assert_eq!(user_policy.username, "testuser");
         assert!(user_policy.memory_limit_gb > 0.0);
+    }
+
+    #[test]
+    fn test_gpu_policy_enforced_for_blocked_user() {
+        let mut config = GuardModeConfig::default();
+        config.global.enabled = true;
+
+        config.gpu_policies.insert(
+            "0".to_string(),
+            GpuPolicy {
+                gpu_index: 0,
+                max_memory_gb: 1.0,
+                max_utilization_pct: 10.0,
+                reserved_memory_gb: 0.0,
+                allowed_users: Vec::new(),
+                blocked_users: vec!["testuser".to_string()],
+                maintenance_window: None,
+            },
+        );
+
+        let mut manager = GuardModeManager {
+            config_path: PathBuf::new(),
+            config,
+            violation_history: Vec::new(),
+            warning_history: Vec::new(),
+        };
+
+        let processes = vec![GpuProc {
+            gpu_index: 0,
+            pid: 1234,
+            user: "testuser".to_string(),
+            proc_name: "test_proc".to_string(),
+            used_mem_mb: 512,
+            start_time: "unknown".to_string(),
+            container: None,
+        }];
+
+        let result = manager.check_policies(&processes).unwrap();
+        assert!(result
+            .violations
+            .iter()
+            .any(|v| matches!(v.violation_type, ViolationType::UnauthorizedUserAccess)));
     }
 }

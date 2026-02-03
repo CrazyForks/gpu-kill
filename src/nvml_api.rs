@@ -6,6 +6,8 @@ use nvml_wrapper::struct_wrappers::device::ProcessInfo;
 use nvml_wrapper::Nvml;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::time::{Duration, SystemTime};
+use sysinfo::{Pid as SysPid, System, Users};
 
 /// GPU information structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,6 +317,35 @@ fn merge_nvml_processes(
     }
 
     processes
+}
+
+fn used_gpu_memory_bytes(process: &ProcessInfo) -> u64 {
+    match process.used_gpu_memory {
+        UsedGpuMemory::Used(bytes) => bytes,
+        UsedGpuMemory::Unavailable => 0,
+    }
+}
+
+fn used_gpu_memory_mb(process: &ProcessInfo) -> u32 {
+    (used_gpu_memory_bytes(process) / 1024 / 1024) as u32
+}
+
+fn enrich_gpu_proc(proc: &mut GpuProc) {
+    let mut system = System::new_all();
+    system.refresh_processes();
+    let users = Users::new_with_refreshed_list();
+
+    let sys_pid = SysPid::from_u32(proc.pid);
+    if let Some(process) = system.process(sys_pid) {
+        proc.proc_name = process.name().to_string();
+        let start_time = SystemTime::UNIX_EPOCH + Duration::from_secs(process.start_time());
+        proc.start_time = crate::util::parse_process_start_time(start_time);
+        if let Some(user_id) = process.user_id() {
+            if let Some(user) = users.get_user_by_id(user_id) {
+                proc.user = user.name().to_string();
+            }
+        }
+    }
 }
 
 /// Map NVML errors to user-friendly messages

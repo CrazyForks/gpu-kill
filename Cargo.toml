@@ -6,7 +6,7 @@ members = [
 
 [package]
 name = "gpukill"
-version = "0.1.12"
+version = "0.1.13"
 edition = "2021"
 authors = ["Kage <info@treadie.com>"]
 description = "A CLI tool for GPU management and monitoring supporting NVIDIA, AMD, Intel, and Apple Silicon GPUs"

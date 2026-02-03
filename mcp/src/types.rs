@@ -75,13 +75,29 @@ where
     Ok(version)
 }
 
+fn deserialize_request_id<'de, D>(deserializer: D) -> Result<Option<RequestId>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let id = Option::<RequestId>::deserialize(deserializer)?;
+    if matches!(id, Some(RequestId::Null)) {
+        return Err(serde::de::Error::custom("jsonrpc id must not be null"));
+    }
+    Ok(id)
+}
+
 /// MCP Request/Response types
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JsonRpcRequest {
     #[serde(deserialize_with = "validate_jsonrpc_version")]
     pub jsonrpc: String,
-    /// Request identifier - can be String, Number, or Null per JSON-RPC 2.0
-    pub id: RequestId,
+    /// Request identifier - optional for JSON-RPC notifications
+    #[serde(
+        default,
+        deserialize_with = "deserialize_request_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub id: Option<RequestId>,
     pub method: String,
     pub params: Option<serde_json::Value>,
 }
@@ -108,6 +124,7 @@ pub struct JsonRpcError {
 
 /// MCP Protocol Messages
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InitializeRequest {
     pub protocol_version: String,
     pub capabilities: ClientCapabilities,
@@ -115,6 +132,7 @@ pub struct InitializeRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InitializeResponse {
     pub protocol_version: String,
     pub capabilities: ServerCapabilities,
@@ -122,6 +140,7 @@ pub struct InitializeResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub roots: Option<RootsCapability>,
@@ -130,6 +149,7 @@ pub struct ClientCapabilities {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resources: Option<ResourcesCapability>,
@@ -140,41 +160,49 @@ pub struct ServerCapabilities {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClientInfo {
     pub name: String,
     pub version: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerInfo {
     pub name: String,
     pub version: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RootsCapability {
     pub list_changed: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SamplingCapability {}
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourcesCapability {
     pub subscribe: Option<bool>,
     pub list_changed: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolsCapability {
     pub list_changed: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LoggingCapability {}
 
 /// Resource Types
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Resource {
     pub uri: String,
     pub name: String,
@@ -183,6 +211,7 @@ pub struct Resource {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceContents {
     pub uri: String,
     pub mime_type: Option<String>,
@@ -192,6 +221,7 @@ pub struct ResourceContents {
 
 /// Tool Types
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Tool {
     pub name: String,
     pub description: Option<String>,
@@ -199,18 +229,21 @@ pub struct Tool {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolCall {
     pub name: String,
     pub arguments: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolResult {
     pub content: Vec<ToolContent>,
     pub is_error: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolContent {
     #[serde(rename = "type")]
     pub content_type: String,
@@ -295,7 +328,7 @@ mod tests {
         });
 
         let parsed: JsonRpcRequest = from_value(request).unwrap();
-        assert_eq!(parsed.id, RequestId::String("request-1".to_string()));
+        assert_eq!(parsed.id, Some(RequestId::String("request-1".to_string())));
         assert_eq!(parsed.method, "tools/list");
     }
 
@@ -310,7 +343,7 @@ mod tests {
         });
 
         let parsed: JsonRpcRequest = from_value(request).unwrap();
-        assert_eq!(parsed.id, RequestId::Number(123));
+        assert_eq!(parsed.id, Some(RequestId::Number(123)));
         assert_eq!(parsed.method, "initialize");
     }
 
@@ -343,8 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn test_jsonrpc_request_with_null_id() {
-        // Null IDs are valid in JSON-RPC 2.0 (but not MCP)
+    fn test_jsonrpc_request_rejects_null_id() {
         let request = json!({
             "jsonrpc": "2.0",
             "method": "notify",
@@ -352,8 +384,20 @@ mod tests {
             "id": null
         });
 
+        let parsed: Result<JsonRpcRequest, _> = from_value(request);
+        assert!(parsed.is_err(), "expected null id to be rejected");
+    }
+
+    #[test]
+    fn test_jsonrpc_notification_without_id() {
+        let request = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+            "params": {}
+        });
+
         let parsed: JsonRpcRequest = from_value(request).unwrap();
-        assert_eq!(parsed.id, RequestId::Null);
+        assert_eq!(parsed.id, None);
     }
 
     #[test]
@@ -380,5 +424,28 @@ mod tests {
 
         let serialized = serde_json::to_value(&response_with_number).unwrap();
         assert_eq!(serialized["id"], json!(123));
+    }
+
+    #[test]
+    fn test_initialize_response_uses_camel_case() {
+        let response = InitializeResponse {
+            protocol_version: "2024-11-05".to_string(),
+            capabilities: ServerCapabilities {
+                resources: None,
+                tools: None,
+                logging: None,
+            },
+            server_info: ServerInfo {
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+            },
+        };
+
+        let serialized = serde_json::to_value(&response).unwrap();
+        let object = serialized.as_object().unwrap();
+        assert!(object.contains_key("protocolVersion"));
+        assert!(object.contains_key("serverInfo"));
+        assert!(!object.contains_key("protocol_version"));
+        assert!(!object.contains_key("server_info"));
     }
 }

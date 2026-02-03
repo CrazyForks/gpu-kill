@@ -87,6 +87,21 @@ impl ResourceHandler {
 
     async fn get_gpu_list(&self) -> anyhow::Result<ResourceContents> {
         let gpus = self.gpu_manager.get_all_snapshots()?;
+        let processes = self.gpu_manager.get_all_processes()?;
+        let mut processes_by_gpu: HashMap<u16, Vec<GpuProcess>> = HashMap::new();
+
+        for proc in processes {
+            processes_by_gpu
+                .entry(proc.gpu_index)
+                .or_default()
+                .push(GpuProcess {
+                    pid: proc.pid,
+                    name: proc.proc_name,
+                    memory_usage: proc.used_mem_mb as f64,
+                    user: Some(proc.user),
+                });
+        }
+
         let gpu_info: Vec<GpuInfo> = gpus
             .into_iter()
             .map(|gpu| GpuInfo {
@@ -98,16 +113,10 @@ impl ResourceHandler {
                 utilization: gpu.util_pct as f64,
                 temperature: Some(gpu.temp_c as f64),
                 power_usage: Some(gpu.power_w as f64),
-                processes: gpu
-                    .top_proc
-                    .map(|proc| GpuProcess {
-                        pid: proc.pid,
-                        name: proc.proc_name,
-                        memory_usage: proc.used_mem_mb as f64,
-                        user: Some(proc.user),
-                    })
-                    .into_iter()
-                    .collect(),
+                processes: processes_by_gpu
+                    .get(&gpu.gpu_index)
+                    .cloned()
+                    .unwrap_or_default(),
             })
             .collect();
 
@@ -122,19 +131,16 @@ impl ResourceHandler {
     }
 
     async fn get_gpu_processes(&self) -> anyhow::Result<ResourceContents> {
-        let gpus = self.gpu_manager.get_all_snapshots()?;
-        let mut all_processes = Vec::new();
-
-        for gpu in gpus {
-            if let Some(proc) = gpu.top_proc {
-                all_processes.push(GpuProcess {
-                    pid: proc.pid,
-                    name: proc.proc_name,
-                    memory_usage: proc.used_mem_mb as f64,
-                    user: Some(proc.user),
-                });
-            }
-        }
+        let processes = self.gpu_manager.get_all_processes()?;
+        let all_processes: Vec<GpuProcess> = processes
+            .into_iter()
+            .map(|proc| GpuProcess {
+                pid: proc.pid,
+                name: proc.proc_name,
+                memory_usage: proc.used_mem_mb as f64,
+                user: Some(proc.user),
+            })
+            .collect();
 
         let json_text = serde_json::to_string_pretty(&all_processes)?;
 

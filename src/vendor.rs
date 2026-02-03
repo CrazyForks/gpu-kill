@@ -4,6 +4,8 @@ use nvml_wrapper::enums::device::UsedGpuMemory;
 use nvml_wrapper::struct_wrappers::device::ProcessInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::time::{Duration, SystemTime};
+use sysinfo::{Pid as SysPid, System, Users};
 
 /// GPU vendor types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +84,35 @@ fn merge_nvml_processes(
     }
 
     processes
+}
+
+fn used_gpu_memory_bytes(process: &ProcessInfo) -> u64 {
+    match process.used_gpu_memory {
+        UsedGpuMemory::Used(bytes) => bytes,
+        UsedGpuMemory::Unavailable => 0,
+    }
+}
+
+fn used_gpu_memory_mb(process: &ProcessInfo) -> u32 {
+    (used_gpu_memory_bytes(process) / 1024 / 1024) as u32
+}
+
+fn enrich_gpu_proc(proc: &mut GpuProc) {
+    let mut system = System::new_all();
+    system.refresh_processes();
+    let users = Users::new_with_refreshed_list();
+
+    let sys_pid = SysPid::from_u32(proc.pid);
+    if let Some(process) = system.process(sys_pid) {
+        proc.proc_name = process.name().to_string();
+        let start_time = SystemTime::UNIX_EPOCH + Duration::from_secs(process.start_time());
+        proc.start_time = crate::util::parse_process_start_time(start_time);
+        if let Some(user_id) = process.user_id() {
+            if let Some(user) = users.get_user_by_id(user_id) {
+                proc.user = user.name().to_string();
+            }
+        }
+    }
 }
 
 impl GpuVendorInterface for NvidiaVendor {
@@ -164,18 +195,22 @@ impl GpuVendorInterface for NvidiaVendor {
         let processes = merge_nvml_processes(compute_processes, graphics_processes);
 
         let pids: Vec<u32> = processes.iter().map(|p| p.pid).collect();
-        let top_proc = processes.first().map(|p| GpuProc {
-            gpu_index: index as u16,
-            pid: p.pid,
-            user: "unknown".to_string(),
-            proc_name: "unknown".to_string(),
-            used_mem_mb: match p.used_gpu_memory {
-                UsedGpuMemory::Used(bytes) => (bytes / 1024 / 1024) as u32,
-                UsedGpuMemory::Unavailable => 0,
-            },
-            start_time: "unknown".to_string(),
-            container: None,
-        });
+        let top_proc = processes
+            .iter()
+            .max_by_key(|p| used_gpu_memory_bytes(p))
+            .map(|p| {
+                let mut proc = GpuProc {
+                    gpu_index: index as u16,
+                    pid: p.pid,
+                    user: "unknown".to_string(),
+                    proc_name: "unknown".to_string(),
+                    used_mem_mb: used_gpu_memory_mb(p),
+                    start_time: "unknown".to_string(),
+                    container: None,
+                };
+                enrich_gpu_proc(&mut proc);
+                proc
+            });
 
         Ok(GpuSnapshot {
             gpu_index: index as u16,
@@ -1201,16 +1236,25 @@ impl GpuManager {
     /// Get all GPU snapshots from all vendors
     pub fn get_all_snapshots(&self) -> Result<Vec<GpuSnapshot>> {
         let mut snapshots = Vec::new();
+        let mut global_offset: u16 = 0;
         for vendor in &self.vendors {
             let count = vendor.device_count()?;
             for i in 0..count {
                 match vendor.get_gpu_snapshot(i) {
-                    Ok(snapshot) => snapshots.push(snapshot),
+                    Ok(mut snapshot) => {
+                        let new_index = snapshot.gpu_index.saturating_add(global_offset);
+                        snapshot.gpu_index = new_index;
+                        if let Some(ref mut top_proc) = snapshot.top_proc {
+                            top_proc.gpu_index = new_index;
+                        }
+                        snapshots.push(snapshot);
+                    }
                     Err(e) => {
                         tracing::warn!("Failed to get snapshot for GPU {}: {}", i, e);
                     }
                 }
             }
+            global_offset = global_offset.saturating_add(count as u16);
         }
         Ok(snapshots)
     }
@@ -1218,16 +1262,23 @@ impl GpuManager {
     /// Get all processes from all vendors
     pub fn get_all_processes(&self) -> Result<Vec<GpuProc>> {
         let mut processes = Vec::new();
+        let mut global_offset: u16 = 0;
         for vendor in &self.vendors {
             let count = vendor.device_count()?;
             for i in 0..count {
                 match vendor.get_gpu_processes(i) {
-                    Ok(mut vendor_procs) => processes.append(&mut vendor_procs),
+                    Ok(mut vendor_procs) => {
+                        for proc in &mut vendor_procs {
+                            proc.gpu_index = proc.gpu_index.saturating_add(global_offset);
+                        }
+                        processes.append(&mut vendor_procs)
+                    }
                     Err(e) => {
                         tracing::warn!("Failed to get processes for GPU {}: {}", i, e);
                     }
                 }
             }
+            global_offset = global_offset.saturating_add(count as u16);
         }
         Ok(processes)
     }
@@ -1249,5 +1300,116 @@ impl GpuManager {
     /// Get available vendors
     pub fn get_vendors(&self) -> Vec<GpuVendor> {
         self.vendors.iter().map(|v| v.vendor_type()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestVendor {
+        vendor: GpuVendor,
+        count: u32,
+    }
+
+    impl GpuVendorInterface for TestVendor {
+        fn initialize() -> Result<Self> {
+            Ok(Self {
+                vendor: GpuVendor::Unknown,
+                count: 0,
+            })
+        }
+
+        fn vendor_type(&self) -> GpuVendor {
+            self.vendor
+        }
+
+        fn device_count(&self) -> Result<u32> {
+            Ok(self.count)
+        }
+
+        fn get_gpu_info(&self, index: u32) -> Result<GpuInfo> {
+            Ok(GpuInfo {
+                index: index as u16,
+                name: format!("Test GPU {}", index),
+                mem_total_mb: 1024,
+            })
+        }
+
+        fn get_gpu_snapshot(&self, index: u32) -> Result<GpuSnapshot> {
+            Ok(GpuSnapshot {
+                gpu_index: index as u16,
+                name: format!("Test GPU {}", index),
+                vendor: self.vendor,
+                mem_used_mb: 128,
+                mem_total_mb: 1024,
+                util_pct: 10.0,
+                temp_c: 40,
+                power_w: 50.0,
+                ecc_volatile: None,
+                pids: 1,
+                top_proc: Some(GpuProc {
+                    gpu_index: index as u16,
+                    pid: 1000 + index,
+                    user: "user".to_string(),
+                    proc_name: "proc".to_string(),
+                    used_mem_mb: 64,
+                    start_time: "unknown".to_string(),
+                    container: None,
+                }),
+            })
+        }
+
+        fn get_gpu_processes(&self, index: u32) -> Result<Vec<GpuProc>> {
+            Ok(vec![GpuProc {
+                gpu_index: index as u16,
+                pid: 2000 + index,
+                user: "user".to_string(),
+                proc_name: "proc".to_string(),
+                used_mem_mb: 32,
+                start_time: "unknown".to_string(),
+                container: None,
+            }])
+        }
+
+        fn reset_gpu(&self, _index: u32) -> Result<()> {
+            Ok(())
+        }
+
+        fn is_available() -> bool {
+            true
+        }
+
+        fn get_availability_error() -> String {
+            "unavailable".to_string()
+        }
+    }
+
+    #[test]
+    fn test_global_gpu_index_normalization() {
+        let manager = GpuManager {
+            vendors: vec![
+                Box::new(TestVendor {
+                    vendor: GpuVendor::Nvidia,
+                    count: 1,
+                }),
+                Box::new(TestVendor {
+                    vendor: GpuVendor::Amd,
+                    count: 1,
+                }),
+            ],
+        };
+
+        let snapshots = manager.get_all_snapshots().unwrap();
+        assert_eq!(snapshots.len(), 2);
+        assert_eq!(snapshots[0].gpu_index, 0);
+        assert_eq!(snapshots[1].gpu_index, 1);
+        assert_eq!(snapshots[0].top_proc.as_ref().unwrap().gpu_index, 0);
+        assert_eq!(snapshots[1].top_proc.as_ref().unwrap().gpu_index, 1);
+
+        let processes = manager.get_all_processes().unwrap();
+        assert_eq!(processes.len(), 2);
+        assert_eq!(processes[0].gpu_index, 0);
+        assert_eq!(processes[1].gpu_index, 1);
     }
 }
