@@ -242,9 +242,11 @@ mod tests {
 
     #[test]
     fn test_env_overrides_config_file() {
-        let mut config = Config::default();
-        config.log_level = "warn".to_string();
-        config.watch_interval_secs = 2;
+        let config = Config {
+            log_level: "warn".to_string(),
+            watch_interval_secs: 2,
+            ..Default::default()
+        };
         let toml_str = toml::to_string_pretty(&config).unwrap();
 
         let temp_file = NamedTempFile::new().unwrap();
