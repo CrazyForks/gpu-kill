@@ -239,7 +239,7 @@ impl CoordinatorState {
         let snapshots = self.snapshots.read().await;
         let mut blocked_gpus = Vec::new();
         // Track unique (node_id, gpu_index) pairs per user to correctly count GPUs
-        // Tuple: (unique_gpus, memory, utilization, process_count)
+        // Tuple: (unique_gpus, memory, utilization_sum, process_count)
         #[allow(clippy::type_complexity)]
         let mut user_stats: HashMap<String, (HashSet<(String, u16)>, u32, f32, u32)> =
             HashMap::new();
@@ -279,9 +279,10 @@ impl CoordinatorState {
                         0,
                     ));
                     // Track unique (node_id, gpu_index) pairs to correctly count GPUs
-                    entry.0.insert((node_id.clone(), gpu.gpu_index));
+                    if entry.0.insert((node_id.clone(), gpu.gpu_index)) {
+                        entry.2 += gpu.util_pct; // utilization (sum per unique GPU)
+                    }
                     entry.1 += process.used_mem_mb; // memory
-                    entry.2 += gpu.util_pct; // utilization (will average later)
                     entry.3 += 1; // process_count
                 }
             }
@@ -295,7 +296,11 @@ impl CoordinatorState {
                     user,
                     gpu_count: gpu_set.len() as u32, // Count unique GPUs
                     total_memory_mb,
-                    avg_utilization: total_util / process_count as f32,
+                    avg_utilization: if gpu_set.is_empty() {
+                        0.0
+                    } else {
+                        total_util / gpu_set.len() as f32
+                    },
                     process_count,
                 },
             )
@@ -959,6 +964,98 @@ mod tests {
         assert_eq!(
             bob_stats.gpu_count, 4,
             "Bob uses 4 unique GPUs across 2 nodes"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_contention_analysis_avg_utilization_unique_gpus() {
+        let state = CoordinatorState::new();
+
+        let snapshot = NodeSnapshot {
+            node_id: "test-node".to_string(),
+            hostname: "test-host".to_string(),
+            timestamp: Utc::now(),
+            gpus: vec![
+                GpuSnapshot {
+                    gpu_index: 0,
+                    name: "GPU 0".to_string(),
+                    vendor: GpuVendor::Nvidia,
+                    mem_used_mb: 8000,
+                    mem_total_mb: 10000,
+                    util_pct: 90.0,
+                    temp_c: 75,
+                    power_w: 200.0,
+                    ecc_volatile: None,
+                    pids: 2,
+                    top_proc: None,
+                },
+                GpuSnapshot {
+                    gpu_index: 1,
+                    name: "GPU 1".to_string(),
+                    vendor: GpuVendor::Nvidia,
+                    mem_used_mb: 3000,
+                    mem_total_mb: 10000,
+                    util_pct: 30.0,
+                    temp_c: 65,
+                    power_w: 100.0,
+                    ecc_volatile: None,
+                    pids: 1,
+                    top_proc: None,
+                },
+            ],
+            processes: vec![
+                GpuProc {
+                    gpu_index: 0,
+                    pid: 1001,
+                    user: "charlie".to_string(),
+                    proc_name: "train1".to_string(),
+                    used_mem_mb: 4000,
+                    start_time: "2025-09-20T01:00:00Z".to_string(),
+                    container: None,
+                },
+                GpuProc {
+                    gpu_index: 0,
+                    pid: 1002,
+                    user: "charlie".to_string(),
+                    proc_name: "train2".to_string(),
+                    used_mem_mb: 4000,
+                    start_time: "2025-09-20T01:00:00Z".to_string(),
+                    container: None,
+                },
+                GpuProc {
+                    gpu_index: 1,
+                    pid: 1003,
+                    user: "charlie".to_string(),
+                    proc_name: "train3".to_string(),
+                    used_mem_mb: 3000,
+                    start_time: "2025-09-20T01:00:00Z".to_string(),
+                    container: None,
+                },
+            ],
+            status: NodeStatus::Online,
+        };
+
+        state
+            .update_snapshot("test-node".to_string(), snapshot)
+            .await
+            .unwrap();
+
+        let analysis = state.get_contention_analysis().await.unwrap();
+
+        let charlie_stats = analysis
+            .top_users
+            .iter()
+            .find(|u| u.user == "charlie")
+            .expect("Charlie should be in top users");
+
+        assert_eq!(charlie_stats.gpu_count, 2, "Charlie uses 2 unique GPUs");
+        assert_eq!(charlie_stats.process_count, 3, "Charlie has 3 processes");
+
+        let expected_avg = 60.0;
+        let diff = (charlie_stats.avg_utilization - expected_avg).abs();
+        assert!(
+            diff < 0.01,
+            "Average utilization should be calculated per unique GPU"
         );
     }
 }

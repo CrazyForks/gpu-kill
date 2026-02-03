@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use shell_escape::escape;
+use shell_escape::unix::escape as unix_escape;
 use std::{
     borrow::Cow,
     process::{Command, Stdio},
@@ -206,11 +206,11 @@ impl SshRemote {
     /// User-controlled input (e.g., --filter, --audit-user, --audit-process) is safely
     /// quoted before being passed to the remote shell.
     pub fn execute_gpukill(&self, args: &[String]) -> Result<String> {
-        // Escape each argument to prevent shell metacharacter injection
+        // Escape each argument for Unix shells to prevent injection on remote hosts
         // This prevents attacks like: --filter "python; rm -rf /"
         let escaped_args: Vec<Cow<str>> = args
             .iter()
-            .map(|arg| escape(Cow::Borrowed(arg.as_str())))
+            .map(|arg| unix_escape(Cow::Borrowed(arg.as_str())))
             .collect();
         let command = format!("gpukill {}", escaped_args.join(" "));
         self.execute_command(&command)
@@ -314,9 +314,7 @@ mod tests {
 
     /// Test that execute_gpukill properly escapes arguments
     ///
-    /// Note: The shell-escape crate escapes for the LOCAL shell (Unix or Windows).
-    /// Since we're SSH-ing to remote Unix hosts, the actual escaping in production
-    /// happens on Unix. These tests verify the escape() function is being called.
+    /// Note: We always use Unix shell escaping for SSH targets.
     #[test]
     fn test_shell_escape_prevents_command_injection() {
         // Test that shell metacharacters are properly escaped
@@ -327,7 +325,7 @@ mod tests {
 
         let escaped_args: Vec<Cow<str>> = malicious_args
             .iter()
-            .map(|arg| escape(Cow::Borrowed(arg.as_str())))
+            .map(|arg| unix_escape(Cow::Borrowed(arg.as_str())))
             .collect();
         let command = format!("gpukill {}", escaped_args.join(" "));
 
@@ -335,31 +333,25 @@ mod tests {
         assert!(command.starts_with("gpukill"));
         assert!(command.contains("--filter"));
 
-        // On Unix, verify proper escaping (SSH targets are Unix hosts)
-        #[cfg(unix)]
-        {
-            // The semicolon and dangerous command should be escaped/quoted
-            assert!(
-                command.contains("'python; rm -rf /'") || command.contains("python\\; rm -rf /"),
-                "Command injection attempt should be escaped: {}",
-                command
-            );
-            // The command should NOT contain an unquoted semicolon
-            assert!(
-                !command.contains(" python; rm"),
-                "Unescaped semicolon would allow command injection: {}",
-                command
-            );
-        }
+        // The semicolon and dangerous command should be escaped/quoted
+        assert!(
+            command.contains("'python; rm -rf /'") || command.contains("python\\; rm -rf /"),
+            "Command injection attempt should be escaped: {}",
+            command
+        );
+        // The command should NOT contain an unquoted semicolon
+        assert!(
+            !command.contains(" python; rm"),
+            "Unescaped semicolon would allow command injection: {}",
+            command
+        );
     }
 
     /// Test Unix-specific shell escaping behavior
     ///
     /// This test only runs on Unix because:
     /// 1. SSH remote commands are executed on Unix hosts
-    /// 2. shell-escape uses different escaping strategies per platform
-    /// 3. The security-critical escaping happens when running on Unix
-    #[cfg(unix)]
+    /// 2. We always use Unix shell escaping for remote commands
     #[test]
     fn test_shell_escape_various_metacharacters() {
         // Test various shell metacharacters that could be used for injection
@@ -377,8 +369,8 @@ mod tests {
         ];
 
         for malicious_input in test_cases {
-            let escaped = escape(Cow::Borrowed(malicious_input));
-            // On Unix, shell-escape wraps dangerous strings in single quotes
+            let escaped = unix_escape(Cow::Borrowed(malicious_input));
+            // Unix escaping wraps dangerous strings in single quotes
             assert!(
                 escaped.starts_with('\'') || escaped.contains('\\'),
                 "Input '{}' should be escaped, got: {}",

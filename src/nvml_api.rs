@@ -2,8 +2,10 @@ use crate::util::{get_current_timestamp_iso, get_hostname};
 use anyhow::{Context, Result};
 use nvml_wrapper::enums::device::UsedGpuMemory;
 use nvml_wrapper::error::NvmlError;
+use nvml_wrapper::struct_wrappers::device::ProcessInfo;
 use nvml_wrapper::Nvml;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// GPU information structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,10 +136,19 @@ impl NvmlApi {
 
         let ecc_volatile = None; // ECC errors not available in this version
 
-        let processes = device
+        let compute_processes = device
             .running_compute_processes()
             .map_err(map_nvml_error)
-            .context("Failed to get running processes")?;
+            .context("Failed to get running compute processes")?;
+        let graphics_processes = match device.running_graphics_processes() {
+            Ok(processes) => processes,
+            Err(NvmlError::NotSupported) => Vec::new(),
+            Err(error) => {
+                return Err(map_nvml_error(error))
+                    .context("Failed to get running graphics processes")
+            }
+        };
+        let processes = merge_nvml_processes(compute_processes, graphics_processes);
 
         let pids: Vec<u32> = processes.iter().map(|p| p.pid).collect();
         let top_proc = processes.first().map(|p| GpuProc {
@@ -193,10 +204,19 @@ impl NvmlApi {
                 .map_err(map_nvml_error)
                 .with_context(|| format!("Failed to get device at index {}", i))?;
 
-            let processes = device
+            let compute_processes = device
                 .running_compute_processes()
                 .map_err(map_nvml_error)
-                .with_context(|| format!("Failed to get processes for GPU {}", i))?;
+                .with_context(|| format!("Failed to get compute processes for GPU {}", i))?;
+            let graphics_processes = match device.running_graphics_processes() {
+                Ok(processes) => processes,
+                Err(NvmlError::NotSupported) => Vec::new(),
+                Err(error) => {
+                    return Err(map_nvml_error(error))
+                        .with_context(|| format!("Failed to get graphics processes for GPU {}", i))
+                }
+            };
+            let processes = merge_nvml_processes(compute_processes, graphics_processes);
 
             for process in processes {
                 all_processes.push(GpuProc {
@@ -228,12 +248,22 @@ impl NvmlApi {
                 .map_err(map_nvml_error)
                 .with_context(|| format!("Failed to get device at index {}", i))?;
 
-            let processes = device
+            let compute_processes = device
                 .running_compute_processes()
                 .map_err(map_nvml_error)
-                .with_context(|| format!("Failed to get processes for GPU {}", i))?;
+                .with_context(|| format!("Failed to get compute processes for GPU {}", i))?;
+            let graphics_processes = match device.running_graphics_processes() {
+                Ok(processes) => processes,
+                Err(NvmlError::NotSupported) => Vec::new(),
+                Err(error) => {
+                    return Err(map_nvml_error(error))
+                        .with_context(|| format!("Failed to get graphics processes for GPU {}", i))
+                }
+            };
 
-            if processes.iter().any(|p| p.pid == pid) {
+            if compute_processes.iter().any(|p| p.pid == pid)
+                || graphics_processes.iter().any(|p| p.pid == pid)
+            {
                 return Ok(true);
             }
         }
@@ -269,6 +299,22 @@ impl NvmlApi {
             procs,
         })
     }
+}
+
+fn merge_nvml_processes(
+    compute_processes: Vec<ProcessInfo>,
+    graphics_processes: Vec<ProcessInfo>,
+) -> Vec<ProcessInfo> {
+    let mut seen = HashSet::new();
+    let mut processes = Vec::new();
+
+    for process in compute_processes.into_iter().chain(graphics_processes) {
+        if seen.insert(process.pid) {
+            processes.push(process);
+        }
+    }
+
+    processes
 }
 
 /// Map NVML errors to user-friendly messages

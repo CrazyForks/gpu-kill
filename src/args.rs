@@ -86,8 +86,8 @@ pub struct Cli {
     #[arg(long)]
     pub filter: Option<String>,
 
-    /// Kill multiple processes matching the filter
-    #[arg(long, requires = "filter")]
+    /// Kill multiple processes matching the filter or GPU
+    #[arg(long)]
     pub batch: bool,
 
     /// Show container information for processes
@@ -626,6 +626,14 @@ mod tests {
         assert_eq!(cli.pid, Some(12345));
         assert_eq!(cli.timeout_secs, 10);
         assert!(cli.force);
+    }
+
+    #[test]
+    fn test_kill_batch_with_gpu() {
+        let cli = Cli::try_parse_from(["gpukill", "--kill", "--batch", "--gpu", "0"]).unwrap();
+        assert!(cli.kill);
+        assert!(cli.batch);
+        assert_eq!(cli.gpu, Some(0));
     }
 
     #[test]

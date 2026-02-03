@@ -153,13 +153,14 @@ impl GpuKillMCPServer {
                     move |request: axum::extract::Json<JsonRpcRequest>| {
                         let server = server.clone();
                         async move {
+                            let request_id = request.0.id.clone();
                             match server.handle_request(request.0).await {
                                 Ok(response) => axum::response::Json(response),
                                 Err(e) => {
                                     error!("Failed to handle HTTP request: {}", e);
                                     axum::response::Json(JsonRpcResponse {
                                         jsonrpc: "2.0".to_string(),
-                                        id: crate::types::RequestId::Null, // Per JSON-RPC 2.0: use null when id cannot be determined
+                                        id: request_id,
                                         result: None,
                                         error: Some(JsonRpcError {
                                             code: -32603,

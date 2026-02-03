@@ -1,6 +1,6 @@
 [package]
 name = "gpukill-mcp"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["GPU Kill Team"]
 description = "MCP server for GPU Kill - AI-accessible GPU management"

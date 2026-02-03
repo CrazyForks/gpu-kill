@@ -61,10 +61,25 @@ impl From<i32> for RequestId {
     }
 }
 
+fn validate_jsonrpc_version<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let version = String::deserialize(deserializer)?;
+    if version != "2.0" {
+        return Err(serde::de::Error::custom(format!(
+            "jsonrpc must be '2.0', got '{}'",
+            version
+        )));
+    }
+    Ok(version)
+}
+
 /// MCP Request/Response types
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "jsonrpc", rename = "2.0")]
 pub struct JsonRpcRequest {
+    #[serde(deserialize_with = "validate_jsonrpc_version")]
+    pub jsonrpc: String,
     /// Request identifier - can be String, Number, or Null per JSON-RPC 2.0
     pub id: RequestId,
     pub method: String,
@@ -73,6 +88,7 @@ pub struct JsonRpcRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JsonRpcResponse {
+    #[serde(deserialize_with = "validate_jsonrpc_version")]
     pub jsonrpc: String,
     /// Response identifier - must match the request id per JSON-RPC 2.0
     pub id: RequestId,
@@ -296,6 +312,34 @@ mod tests {
         let parsed: JsonRpcRequest = from_value(request).unwrap();
         assert_eq!(parsed.id, RequestId::Number(123));
         assert_eq!(parsed.method, "initialize");
+    }
+
+    #[test]
+    fn test_jsonrpc_request_rejects_wrong_version() {
+        let request = json!({
+            "jsonrpc": "1.0",
+            "method": "initialize",
+            "params": {},
+            "id": 1
+        });
+
+        let parsed: Result<JsonRpcRequest, _> = from_value(request);
+        assert!(parsed.is_err(), "expected jsonrpc version to be rejected");
+    }
+
+    #[test]
+    fn test_jsonrpc_request_rejects_missing_version() {
+        let request = json!({
+            "method": "initialize",
+            "params": {},
+            "id": 1
+        });
+
+        let parsed: Result<JsonRpcRequest, _> = from_value(request);
+        assert!(
+            parsed.is_err(),
+            "expected missing jsonrpc field to be rejected"
+        );
     }
 
     #[test]

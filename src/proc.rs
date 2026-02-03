@@ -277,8 +277,7 @@ fn get_process_user(pid: u32) -> Result<String> {
 
 #[cfg(target_os = "linux")]
 fn get_username_from_uid(uid: u32) -> Result<String> {
-    use std::ffi::CString;
-    // use std::os::unix::ffi::OsStringExt; // Unused for now
+    use std::ffi::CStr;
 
     unsafe {
         let passwd = libc::getpwuid(uid as libc::uid_t);
@@ -286,10 +285,8 @@ fn get_username_from_uid(uid: u32) -> Result<String> {
             return Ok(format!("uid_{}", uid));
         }
 
-        let username = CString::from_raw((*passwd).pw_name);
-        let username_str = username.to_string_lossy().to_string();
-        std::mem::forget(username); // Don't free the passwd struct
-        Ok(username_str)
+        let username = CStr::from_ptr((*passwd).pw_name);
+        Ok(username.to_string_lossy().to_string())
     }
 }
 

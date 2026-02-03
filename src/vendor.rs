@@ -1,7 +1,9 @@
 use crate::nvml_api::{GpuInfo, GpuProc, GpuSnapshot};
 use anyhow::Result;
 use nvml_wrapper::enums::device::UsedGpuMemory;
+use nvml_wrapper::struct_wrappers::device::ProcessInfo;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// GPU vendor types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +66,22 @@ pub trait GpuVendorInterface {
 /// NVIDIA GPU vendor implementation
 pub struct NvidiaVendor {
     nvml: nvml_wrapper::Nvml,
+}
+
+fn merge_nvml_processes(
+    compute_processes: Vec<ProcessInfo>,
+    graphics_processes: Vec<ProcessInfo>,
+) -> Vec<ProcessInfo> {
+    let mut seen = HashSet::new();
+    let mut processes = Vec::new();
+
+    for process in compute_processes.into_iter().chain(graphics_processes) {
+        if seen.insert(process.pid) {
+            processes.push(process);
+        }
+    }
+
+    processes
 }
 
 impl GpuVendorInterface for NvidiaVendor {
@@ -130,9 +148,20 @@ impl GpuVendorInterface for NvidiaVendor {
             .power_usage()
             .map_err(|e| anyhow::anyhow!("Failed to get power usage: {:?}", e))?;
 
-        let processes = device
+        let compute_processes = device
             .running_compute_processes()
-            .map_err(|e| anyhow::anyhow!("Failed to get running processes: {:?}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to get running compute processes: {:?}", e))?;
+        let graphics_processes = match device.running_graphics_processes() {
+            Ok(processes) => processes,
+            Err(nvml_wrapper::error::NvmlError::NotSupported) => Vec::new(),
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "Failed to get running graphics processes: {:?}",
+                    e
+                ))
+            }
+        };
+        let processes = merge_nvml_processes(compute_processes, graphics_processes);
 
         let pids: Vec<u32> = processes.iter().map(|p| p.pid).collect();
         let top_proc = processes.first().map(|p| GpuProc {
@@ -169,9 +198,20 @@ impl GpuVendorInterface for NvidiaVendor {
             .device_by_index(index)
             .map_err(|e| anyhow::anyhow!("Failed to get device at index {}: {:?}", index, e))?;
 
-        let processes = device
+        let compute_processes = device
             .running_compute_processes()
-            .map_err(|e| anyhow::anyhow!("Failed to get running processes: {:?}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to get running compute processes: {:?}", e))?;
+        let graphics_processes = match device.running_graphics_processes() {
+            Ok(processes) => processes,
+            Err(nvml_wrapper::error::NvmlError::NotSupported) => Vec::new(),
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "Failed to get running graphics processes: {:?}",
+                    e
+                ))
+            }
+        };
+        let processes = merge_nvml_processes(compute_processes, graphics_processes);
 
         let mut gpu_procs = Vec::new();
         for p in processes {

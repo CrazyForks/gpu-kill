@@ -88,42 +88,7 @@ impl ConfigManager {
     /// Load configuration from environment variables
     pub fn load_from_env() -> Self {
         let mut config = Config::default();
-
-        // Override with environment variables if present
-        if let Ok(log_level) = std::env::var("GPUKILL_LOG_LEVEL") {
-            config.log_level = log_level;
-        }
-
-        if let Ok(output_format) = std::env::var("GPUKILL_OUTPUT_FORMAT") {
-            config.output_format = output_format;
-        }
-
-        if let Ok(timeout) = std::env::var("GPUKILL_DEFAULT_TIMEOUT") {
-            if let Ok(timeout_secs) = timeout.parse::<u16>() {
-                config.default_timeout_secs = timeout_secs;
-            }
-        }
-
-        if let Ok(show_details) = std::env::var("GPUKILL_SHOW_DETAILS") {
-            config.show_details = show_details.parse().unwrap_or(false);
-        }
-
-        if let Ok(watch_interval) = std::env::var("GPUKILL_WATCH_INTERVAL") {
-            if let Ok(interval_secs) = watch_interval.parse::<u64>() {
-                config.watch_interval_secs = interval_secs;
-            }
-        }
-
-        if let Ok(table_width) = std::env::var("GPUKILL_TABLE_WIDTH") {
-            if let Ok(width) = table_width.parse::<usize>() {
-                config.table_width = width;
-            }
-        }
-
-        if let Ok(use_colors) = std::env::var("GPUKILL_USE_COLORS") {
-            config.use_colors = use_colors.parse().unwrap_or(true);
-        }
-
+        apply_env_overrides(&mut config);
         Self { config }
     }
 
@@ -181,20 +146,55 @@ impl ConfigManager {
     }
 }
 
+fn apply_env_overrides(config: &mut Config) {
+    // Override with environment variables if present
+    if let Ok(log_level) = std::env::var("GPUKILL_LOG_LEVEL") {
+        config.log_level = log_level;
+    }
+
+    if let Ok(output_format) = std::env::var("GPUKILL_OUTPUT_FORMAT") {
+        config.output_format = output_format;
+    }
+
+    if let Ok(timeout) = std::env::var("GPUKILL_DEFAULT_TIMEOUT") {
+        if let Ok(timeout_secs) = timeout.parse::<u16>() {
+            config.default_timeout_secs = timeout_secs;
+        }
+    }
+
+    if let Ok(show_details) = std::env::var("GPUKILL_SHOW_DETAILS") {
+        config.show_details = show_details.parse().unwrap_or(false);
+    }
+
+    if let Ok(watch_interval) = std::env::var("GPUKILL_WATCH_INTERVAL") {
+        if let Ok(interval_secs) = watch_interval.parse::<u64>() {
+            config.watch_interval_secs = interval_secs;
+        }
+    }
+
+    if let Ok(table_width) = std::env::var("GPUKILL_TABLE_WIDTH") {
+        if let Ok(width) = table_width.parse::<usize>() {
+            config.table_width = width;
+        }
+    }
+
+    if let Ok(use_colors) = std::env::var("GPUKILL_USE_COLORS") {
+        config.use_colors = use_colors.parse().unwrap_or(true);
+    }
+}
+
 /// Get configuration with fallback chain
 pub fn get_config(config_path: Option<String>) -> Result<ConfigManager> {
-    // 1. Try to load from specified path
-    if let Some(path) = config_path {
-        return ConfigManager::load_from_file(path);
-    }
+    let mut config = if let Some(path) = config_path {
+        ConfigManager::load_from_file(path)?.config
+    } else if let Ok(config_manager) = ConfigManager::load_default() {
+        config_manager.config
+    } else {
+        Config::default()
+    };
 
-    // 2. Try to load from default location
-    if let Ok(config_manager) = ConfigManager::load_default() {
-        return Ok(config_manager);
-    }
-
-    // 3. Load from environment variables
-    Ok(ConfigManager::load_from_env())
+    apply_env_overrides(&mut config);
+    Ok(ConfigManager { config })
 }
 
 #[cfg(test)]
@@ -238,5 +238,26 @@ mod tests {
     fn test_config_manager_creation() {
         let manager = ConfigManager::new();
         assert_eq!(manager.config().log_level, "info");
+    }
+
+    #[test]
+    fn test_env_overrides_config_file() {
+        let mut config = Config::default();
+        config.log_level = "warn".to_string();
+        config.watch_interval_secs = 2;
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+
+        let temp_file = NamedTempFile::new().unwrap();
+        std::fs::write(temp_file.path(), toml_str).unwrap();
+
+        std::env::set_var("GPUKILL_LOG_LEVEL", "debug");
+        std::env::set_var("GPUKILL_WATCH_INTERVAL", "10");
+
+        let loaded = get_config(Some(temp_file.path().to_string_lossy().to_string())).unwrap();
+        assert_eq!(loaded.config().log_level, "debug");
+        assert_eq!(loaded.config().watch_interval_secs, 10);
+
+        std::env::remove_var("GPUKILL_LOG_LEVEL");
+        std::env::remove_var("GPUKILL_WATCH_INTERVAL");
     }
 }

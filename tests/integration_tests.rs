@@ -665,7 +665,7 @@ mod integration_tests {
 
         assert!(!output.status.success());
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("required arguments were not provided"));
+        assert!(stderr.contains("--kill requires either --pid <PID> or --filter <PATTERN>"));
     }
 
     #[test]
