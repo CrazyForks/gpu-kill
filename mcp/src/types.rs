@@ -266,7 +266,7 @@ pub struct GpuInfo {
     pub processes: Vec<GpuProcess>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GpuProcess {
     pub pid: u32,
     pub name: String,

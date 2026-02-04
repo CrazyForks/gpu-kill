@@ -153,18 +153,22 @@ impl NvmlApi {
         let processes = merge_nvml_processes(compute_processes, graphics_processes);
 
         let pids: Vec<u32> = processes.iter().map(|p| p.pid).collect();
-        let top_proc = processes.first().map(|p| GpuProc {
-            gpu_index: index as u16,
-            pid: p.pid,
-            user: "unknown".to_string(), // Will be filled by process info
-            proc_name: "unknown".to_string(), // Will be filled by process info
-            used_mem_mb: match p.used_gpu_memory {
-                UsedGpuMemory::Used(bytes) => (bytes / 1024 / 1024) as u32,
-                UsedGpuMemory::Unavailable => 0,
-            },
-            start_time: "unknown".to_string(), // Will be filled by process info
-            container: None,
-        });
+        let top_proc = processes
+            .iter()
+            .max_by_key(|p| used_gpu_memory_bytes(p))
+            .map(|p| {
+                let mut proc = GpuProc {
+                    gpu_index: index as u16,
+                    pid: p.pid,
+                    user: "unknown".to_string(), // Will be filled by process info
+                    proc_name: "unknown".to_string(), // Will be filled by process info
+                    used_mem_mb: used_gpu_memory_mb(p),
+                    start_time: "unknown".to_string(), // Will be filled by process info
+                    container: None,
+                };
+                enrich_gpu_proc(&mut proc);
+                proc
+            });
 
         Ok(GpuSnapshot {
             gpu_index: index as u16,
