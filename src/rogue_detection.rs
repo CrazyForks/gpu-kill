@@ -503,8 +503,7 @@ impl RogueDetector {
         // Check for excessive utilization
         if let Some(avg_util) = self.calculate_average_utilization(records) {
             if avg_util > self.detection_rules.max_utilization_pct {
-                let util_severity =
-                    (avg_util / self.detection_rules.max_utilization_pct).min(2.0);
+                let util_severity = (avg_util / self.detection_rules.max_utilization_pct).min(2.0);
                 if util_severity > severity {
                     abuse_type = AbuseType::ExcessiveUtilization;
                     severity = util_severity;
@@ -808,12 +807,11 @@ mod tests {
         let miner = detector
             .detect_crypto_miner(&records)
             .expect("Should detect miner based on patterns");
-        assert!(
-            miner
-                .mining_indicators
-                .iter()
-                .all(|entry| !entry.contains("High GPU utilization") && !entry.contains("High memory usage"))
-        );
+        assert!(miner
+            .mining_indicators
+            .iter()
+            .all(|entry| !entry.contains("High GPU utilization")
+                && !entry.contains("High memory usage")));
     }
 
     #[tokio::test]
