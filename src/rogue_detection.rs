@@ -334,11 +334,11 @@ impl RogueDetector {
             let user_ok = r
                 .user
                 .as_ref()
-                .map_or(true, |u| self.is_user_whitelisted(u));
+                .is_none_or(|u| self.is_user_whitelisted(u));
             let process_ok = r
                 .process_name
                 .as_ref()
-                .map_or(true, |p| self.is_process_whitelisted(p));
+                .is_none_or(|p| self.is_process_whitelisted(p));
             user_ok && process_ok
         })
     }
@@ -360,19 +360,19 @@ impl RogueDetector {
             if let Some(process_name) = &record.process_name {
                 let process_name_lower = process_name.to_lowercase();
                 for pattern in &self.detection_rules.crypto_miner_patterns {
-                    if process_name_lower.contains(pattern) {
-                        if pattern_matched.insert(pattern.clone()) {
-                            indicators.push(format!("Process name contains '{}'", pattern));
-                            score += 0.3;
-                        }
+                    if process_name_lower.contains(pattern)
+                        && pattern_matched.insert(pattern.clone())
+                    {
+                        indicators.push(format!("Process name contains '{}'", pattern));
+                        score += 0.3;
                     }
                 }
                 for miner_name in &self.detection_rules.suspicious_process_names {
-                    if process_name_lower.contains(miner_name) {
-                        if miner_matched.insert(miner_name.clone()) {
-                            indicators.push(format!("Known miner process: {}", miner_name));
-                            score += 0.5;
-                        }
+                    if process_name_lower.contains(miner_name)
+                        && miner_matched.insert(miner_name.clone())
+                    {
+                        indicators.push(format!("Known miner process: {}", miner_name));
+                        score += 0.5;
                     }
                 }
             }
