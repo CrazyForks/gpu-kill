@@ -244,6 +244,7 @@ mod mock_nvml_tests {
                         used_mem_mb: 1024,
                         start_time: "1h 30m".to_string(),
                         container: None,
+                        node_id: None,
                     }),
                 },
                 GpuSnapshot {
@@ -269,6 +270,7 @@ mod mock_nvml_tests {
                     used_mem_mb: 1024,
                     start_time: "1h 30m".to_string(),
                     container: None,
+                    node_id: None,
                 },
                 GpuProc {
                     gpu_index: 0,
@@ -278,6 +280,7 @@ mod mock_nvml_tests {
                     used_mem_mb: 1024,
                     start_time: "2h 15m".to_string(),
                     container: Some("docker".to_string()),
+                    node_id: None,
                 },
                 GpuProc {
                     gpu_index: 1,
@@ -287,6 +290,7 @@ mod mock_nvml_tests {
                     used_mem_mb: 1024,
                     start_time: "30m".to_string(),
                     container: None,
+                    node_id: None,
                 },
             ],
         }
@@ -371,6 +375,7 @@ mod mock_nvml_tests {
             used_mem_mb: 1024,
             start_time: "1h 30m".to_string(),
             container: Some("docker".to_string()),
+            node_id: None,
         };
 
         let json = serde_json::to_string(&gpu_proc).unwrap();
@@ -411,6 +416,7 @@ mod mock_nvml_tests {
                 used_mem_mb: 100,
                 start_time: "1h".to_string(),
                 container: None,
+                node_id: None,
             },
             GpuProc {
                 gpu_index: 0,
@@ -420,6 +426,7 @@ mod mock_nvml_tests {
                 used_mem_mb: 200,
                 start_time: "2h".to_string(),
                 container: None,
+                node_id: None,
             },
             GpuProc {
                 gpu_index: 0,
@@ -429,6 +436,7 @@ mod mock_nvml_tests {
                 used_mem_mb: 300,
                 start_time: "3h".to_string(),
                 container: None,
+                node_id: None,
             },
         ];
 
@@ -460,6 +468,7 @@ mod mock_nvml_tests {
                 used_mem_mb: 100,
                 start_time: "1h".to_string(),
                 container: None,
+                node_id: None,
             },
             GpuProc {
                 gpu_index: 0,
@@ -469,6 +478,7 @@ mod mock_nvml_tests {
                 used_mem_mb: 200,
                 start_time: "2h".to_string(),
                 container: None,
+                node_id: None,
             },
             GpuProc {
                 gpu_index: 0,
@@ -478,6 +488,7 @@ mod mock_nvml_tests {
                 used_mem_mb: 300,
                 start_time: "3h".to_string(),
                 container: None,
+                node_id: None,
             },
         ];
 
@@ -505,6 +516,7 @@ mod mock_nvml_tests {
                 used_mem_mb: 100,
                 start_time: "1h".to_string(),
                 container: Some("docker".to_string()),
+                node_id: None,
             },
             GpuProc {
                 gpu_index: 0,
@@ -514,6 +526,7 @@ mod mock_nvml_tests {
                 used_mem_mb: 200,
                 start_time: "2h".to_string(),
                 container: Some("docker".to_string()),
+                node_id: None,
             },
             GpuProc {
                 gpu_index: 0,
@@ -523,6 +536,7 @@ mod mock_nvml_tests {
                 used_mem_mb: 300,
                 start_time: "3h".to_string(),
                 container: None,
+                node_id: None,
             },
         ];
 
