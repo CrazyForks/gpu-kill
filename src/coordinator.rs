@@ -438,22 +438,78 @@ async fn get_contention_analysis(
     Ok(Json(analysis))
 }
 
-/// Get rogue activity analysis
+/// Convert cluster node snapshots into audit records for rogue detection.
+/// Each process becomes one record; utilization is attributed from the GPU (proportional share).
+pub(crate) fn snapshots_to_audit_records(snapshots: &[NodeSnapshot]) -> Vec<crate::audit::AuditRecord> {
+    use crate::audit::AuditRecord;
+
+    let mut records = Vec::new();
+    for snapshot in snapshots {
+        let node_id = Some(snapshot.node_id.clone());
+        let timestamp = snapshot.timestamp;
+        for process in &snapshot.processes {
+            let gpu_index = process.gpu_index;
+            let gpu_name = snapshot
+                .gpus
+                .iter()
+                .find(|g| g.gpu_index == gpu_index)
+                .map(|g| g.name.as_str())
+                .unwrap_or("GPU");
+            let process_count = snapshot
+                .processes
+                .iter()
+                .filter(|p| p.gpu_index == gpu_index)
+                .count()
+                .max(1);
+            let util_pct = snapshot
+                .gpus
+                .iter()
+                .find(|g| g.gpu_index == gpu_index)
+                .map(|g| g.util_pct / process_count as f32)
+                .unwrap_or(0.0);
+
+            let id = timestamp.timestamp_millis().wrapping_add(process.pid as i64);
+            records.push(AuditRecord {
+                id,
+                timestamp,
+                gpu_index: process.gpu_index,
+                gpu_name: gpu_name.to_string(),
+                pid: Some(process.pid),
+                user: Some(process.user.clone()),
+                process_name: Some(process.proc_name.clone()),
+                memory_used_mb: process.used_mem_mb,
+                utilization_pct: util_pct,
+                temperature_c: 0,
+                power_w: 0.0,
+                container: process.container.clone(),
+                node_id: node_id.clone(),
+            });
+        }
+    }
+    records
+}
+
+/// Get rogue activity analysis from cluster snapshots (all registered nodes).
+/// Uses current in-memory snapshots so worker-node rogue activity is included.
 async fn get_rogue_analysis(
-    State(_state): State<CoordinatorState>,
+    State(state): State<CoordinatorState>,
 ) -> Result<Json<crate::rogue_detection::RogueDetectionResult>, StatusCode> {
     use crate::audit::AuditManager;
     use crate::rogue_detection::RogueDetector;
 
-    // Initialize audit manager and rogue detector
+    let snapshots = state.snapshots.read().await;
+    let snapshot_list: Vec<NodeSnapshot> = snapshots.values().cloned().collect();
+    drop(snapshots);
+
+    let records = snapshots_to_audit_records(&snapshot_list);
+
     let audit_manager = AuditManager::new()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
     let detector = RogueDetector::new(audit_manager);
     let result = detector
-        .detect_rogue_activity(24)
-        .await // Default to 24 hours
+        .detect_rogue_activity_from_records(records)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(result))
@@ -479,6 +535,7 @@ async fn get_rogue_analysis_test(
                 used_mem_mb: 2048,
                 start_time: "2025-09-20T01:00:00Z".to_string(),
                 container: None,
+                node_id: None,
             },
             reasons: vec![
                 "High GPU utilization with low CPU usage".to_string(),
@@ -497,6 +554,7 @@ async fn get_rogue_analysis_test(
                 used_mem_mb: 1024,
                 start_time: "2025-09-20T00:30:00Z".to_string(),
                 container: None,
+                node_id: None,
             },
             mining_indicators: vec![
                 "Known cryptocurrency mining software".to_string(),
@@ -515,6 +573,7 @@ async fn get_rogue_analysis_test(
                 used_mem_mb: 8192,
                 start_time: "2025-09-19T20:00:00Z".to_string(),
                 container: None,
+                node_id: None,
             },
             abuse_type: AbuseType::MemoryHog,
             severity: 0.9,
@@ -570,10 +629,11 @@ async fn websocket_connection(socket: axum::extract::ws::WebSocket, state: Coord
             }
             msg = receiver.next() => {
                 match msg {
-                    Some(Ok(Message::Close(_))) => break,
+                    Some(Ok(Message::Close(_))) | None => break,
                     Some(Ok(Message::Ping(data))) => {
                         let _ = sender.send(Message::Pong(data)).await;
                     }
+                    Some(Err(_)) => break,
                     _ => {}
                 }
             }
@@ -786,6 +846,7 @@ mod tests {
                     used_mem_mb: 4000,
                     start_time: "2025-09-20T01:00:00Z".to_string(),
                     container: None,
+                    node_id: None,
                 },
                 GpuProc {
                     gpu_index: 0,
@@ -795,6 +856,7 @@ mod tests {
                     used_mem_mb: 4000,
                     start_time: "2025-09-20T01:00:00Z".to_string(),
                     container: None,
+                    node_id: None,
                 },
             ],
             status: NodeStatus::Online,
@@ -888,6 +950,7 @@ mod tests {
                     used_mem_mb: 2000,
                     start_time: "2025-09-20T01:00:00Z".to_string(),
                     container: None,
+                    node_id: None,
                 },
                 GpuProc {
                     gpu_index: 0,
@@ -897,6 +960,7 @@ mod tests {
                     used_mem_mb: 2000,
                     start_time: "2025-09-20T01:00:00Z".to_string(),
                     container: None,
+                    node_id: None,
                 },
                 GpuProc {
                     gpu_index: 1,
@@ -906,6 +970,7 @@ mod tests {
                     used_mem_mb: 2000,
                     start_time: "2025-09-20T01:00:00Z".to_string(),
                     container: None,
+                    node_id: None,
                 },
             ],
             status: NodeStatus::Online,
@@ -953,6 +1018,7 @@ mod tests {
                     used_mem_mb: 2000,
                     start_time: "2025-09-20T01:00:00Z".to_string(),
                     container: None,
+                    node_id: None,
                 },
                 GpuProc {
                     gpu_index: 1,
@@ -962,6 +1028,7 @@ mod tests {
                     used_mem_mb: 2000,
                     start_time: "2025-09-20T01:00:00Z".to_string(),
                     container: None,
+                    node_id: None,
                 },
             ],
             status: NodeStatus::Online,
@@ -1066,6 +1133,7 @@ mod tests {
                     used_mem_mb: 4000,
                     start_time: "2025-09-20T01:00:00Z".to_string(),
                     container: None,
+                    node_id: None,
                 },
                 GpuProc {
                     gpu_index: 0,
@@ -1075,6 +1143,7 @@ mod tests {
                     used_mem_mb: 4000,
                     start_time: "2025-09-20T01:00:00Z".to_string(),
                     container: None,
+                    node_id: None,
                 },
                 GpuProc {
                     gpu_index: 1,
@@ -1084,6 +1153,7 @@ mod tests {
                     used_mem_mb: 3000,
                     start_time: "2025-09-20T01:00:00Z".to_string(),
                     container: None,
+                    node_id: None,
                 },
             ],
             status: NodeStatus::Online,
@@ -1147,5 +1217,67 @@ mod tests {
 
         let snapshots = state.snapshots.read().await;
         assert!(!snapshots.contains_key("rogue-node"));
+    }
+
+    #[tokio::test]
+    async fn test_rogue_analysis_uses_cluster_snapshots() {
+        use crate::audit::AuditManager;
+        use crate::rogue_detection::{RogueDetector, DetectionRules};
+        use crate::vendor::GpuVendor;
+
+        // Node snapshot with a clear crypto miner (xmrig at 99% GPU util)
+        let snapshot = NodeSnapshot {
+            node_id: "worker-1".to_string(),
+            hostname: "worker-host".to_string(),
+            timestamp: Utc::now(),
+            gpus: vec![GpuSnapshot {
+                gpu_index: 0,
+                name: "NVIDIA A100".to_string(),
+                vendor: GpuVendor::Nvidia,
+                mem_used_mb: 8000,
+                mem_total_mb: 40000,
+                util_pct: 99.0,
+                temp_c: 80,
+                power_w: 250.0,
+                ecc_volatile: None,
+                pids: 1,
+                top_proc: None,
+            }],
+            processes: vec![GpuProc {
+                gpu_index: 0,
+                pid: 12345,
+                user: "attacker".to_string(),
+                proc_name: "xmrig".to_string(),
+                used_mem_mb: 1024,
+                start_time: "unknown".to_string(),
+                container: None,
+                node_id: None,
+            }],
+            status: NodeStatus::Online,
+        };
+
+        let records = snapshots_to_audit_records(&[snapshot]);
+        assert!(!records.is_empty());
+        assert_eq!(records[0].process_name.as_deref(), Some("xmrig"));
+        assert_eq!(records[0].node_id.as_deref(), Some("worker-1"));
+
+        let rules = DetectionRules {
+            min_confidence_threshold: 0.5,
+            ..DetectionRules::default()
+        };
+        let audit_manager = AuditManager::new().await.unwrap();
+        let detector = RogueDetector::with_rules(audit_manager, rules);
+        let result = detector
+            .detect_rogue_activity_from_records(records)
+            .await
+            .unwrap();
+
+        assert!(
+            !result.crypto_miners.is_empty(),
+            "Cluster snapshot with xmrig should produce at least one crypto miner"
+        );
+        let miner = &result.crypto_miners[0];
+        assert_eq!(miner.process.proc_name, "xmrig");
+        assert_eq!(miner.process.node_id.as_deref(), Some("worker-1"));
     }
 }

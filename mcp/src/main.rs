@@ -13,7 +13,10 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting GPU Kill MCP Server");
 
-    // Get port from environment or use default
+    // Bind to 127.0.0.1 by default so the server is not reachable from the network.
+    // Set MCP_HOST=0.0.0.0 only if you need remote access and have other protections.
+    let host = env::var("MCP_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+
     let port = env::var("MCP_PORT")
         .unwrap_or_else(|_| "3001".to_string())
         .parse::<u16>()
@@ -39,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
     info!("  - kill_processes_by_name - Kill all processes matching a name pattern");
 
     // Start the server
-    if let Err(e) = server.start(port).await {
+    if let Err(e) = server.start(host.as_str(), port).await {
         error!("Failed to start MCP server: {}", e);
         return Err(e);
     }

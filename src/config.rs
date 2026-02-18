@@ -66,14 +66,11 @@ impl ConfigManager {
         }
     }
 
-    /// Load configuration from file
+    /// Load configuration from file.
+    /// Returns an error if the file does not exist or cannot be read (caller should use
+    /// defaults only when loading from the default path and the file is optional).
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let config_path = path.as_ref();
-
-        if !config_path.exists() {
-            tracing::debug!("Config file not found at {:?}, using defaults", config_path);
-            return Ok(Self::new());
-        }
 
         let content = fs::read_to_string(config_path)
             .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
@@ -261,5 +258,23 @@ mod tests {
 
         std::env::remove_var("GPUKILL_LOG_LEVEL");
         std::env::remove_var("GPUKILL_WATCH_INTERVAL");
+    }
+
+    #[test]
+    fn test_load_from_file_non_existent_returns_error() {
+        let result = ConfigManager::load_from_file("non_existent_at_all.toml");
+        assert!(
+            result.is_err(),
+            "load_from_file should return Err for non-existent path"
+        );
+    }
+
+    #[test]
+    fn test_get_config_explicit_non_existent_returns_error() {
+        let result = get_config(Some("non_existent_at_all.toml".to_string()));
+        assert!(
+            result.is_err(),
+            "get_config should return Err for explicit non-existent path"
+        );
     }
 }

@@ -129,14 +129,13 @@ impl ProcessManager {
 
     /// Check if a process is still running
     ///
-    /// This method refreshes the process info from the system before checking,
-    /// ensuring we get current state rather than stale cached data.
+    /// Uses the return value of refresh_process: sysinfo does not remove dead
+    /// processes from its internal cache, so system.process(pid).is_some() can
+    /// still be true after a process has terminated. refresh_process returns true
+    /// only if the process was found and refreshed, false otherwise.
     fn is_process_running(&mut self, pid: u32) -> Result<bool> {
         let sys_pid = SysPid::from_u32(pid);
-        // Refresh this specific process to get current state
-        // This is more efficient than refresh_all() and ensures we're not using stale cache
-        self.system.refresh_process(sys_pid);
-        Ok(self.system.process(sys_pid).is_some())
+        Ok(self.system.refresh_process(sys_pid))
     }
 
     /// Enrich GPU processes with system information

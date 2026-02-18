@@ -179,10 +179,10 @@ impl RogueDetector {
         let mut resource_abusers = Vec::new();
         let mut data_exfiltrators = Vec::new();
 
-        // Group audit records by PID for analysis
+        // Group audit records by (node_id, pid) for analysis
         let process_groups = self.group_records_by_pid(&audit_records);
 
-        for (_pid, records) in process_groups {
+        for (_key, records) in process_groups {
             // Detect crypto miners
             if let Some(miner) = self.detect_crypto_miner(&records) {
                 crypto_miners.push(miner);
@@ -234,14 +234,73 @@ impl RogueDetector {
         Ok(result)
     }
 
-    /// Group audit records by PID for analysis
-    fn group_records_by_pid(&self, records: &[AuditRecord]) -> HashMap<u32, Vec<AuditRecord>> {
+    /// Analyze a provided list of audit records (e.g. from cluster snapshots) for rogue activity.
+    /// Does not query the audit manager; use this for cluster-wide analysis.
+    pub async fn detect_rogue_activity_from_records(
+        &self,
+        records: Vec<AuditRecord>,
+    ) -> Result<RogueDetectionResult> {
+        debug!("Analyzing {} audit records (cluster or ad-hoc)", records.len());
+
+        let mut suspicious_processes = Vec::new();
+        let mut crypto_miners = Vec::new();
+        let mut resource_abusers = Vec::new();
+        let mut data_exfiltrators = Vec::new();
+
+        let process_groups = self.group_records_by_pid(&records);
+
+        for (_key, group_records) in process_groups {
+            if let Some(miner) = self.detect_crypto_miner(&group_records) {
+                crypto_miners.push(miner);
+            }
+            if let Some(suspicious) = self.detect_suspicious_process(&group_records) {
+                suspicious_processes.push(suspicious);
+            }
+            if let Some(abuser) = self.detect_resource_abuser(&group_records) {
+                resource_abusers.push(abuser);
+            }
+            if let Some(exfiltrator) = self.detect_data_exfiltrator(&group_records) {
+                data_exfiltrators.push(exfiltrator);
+            }
+        }
+
+        let risk_score = self.calculate_risk_score(
+            &suspicious_processes,
+            &crypto_miners,
+            &resource_abusers,
+            &data_exfiltrators,
+        );
+        let recommendations = self.generate_recommendations(
+            &suspicious_processes,
+            &crypto_miners,
+            &resource_abusers,
+            &data_exfiltrators,
+        );
+
+        Ok(RogueDetectionResult {
+            timestamp: Utc::now(),
+            suspicious_processes,
+            crypto_miners,
+            resource_abusers,
+            data_exfiltrators,
+            risk_score,
+            recommendations,
+        })
+    }
+
+    /// Group audit records by (node_id, pid) for analysis. When node_id is None (local),
+    /// uses empty string so single-node behavior is unchanged.
+    fn group_records_by_pid(
+        &self,
+        records: &[AuditRecord],
+    ) -> HashMap<(String, u32), Vec<AuditRecord>> {
         let mut groups = HashMap::new();
 
         for record in records {
             if let Some(pid) = record.pid {
+                let node_key = record.node_id.clone().unwrap_or_default();
                 groups
-                    .entry(pid)
+                    .entry((node_key, pid))
                     .or_insert_with(Vec::new)
                     .push(record.clone());
             }
@@ -258,66 +317,97 @@ impl RogueDetector {
             .any(|u| u.eq_ignore_ascii_case(user))
     }
 
-    /// Check if a process is whitelisted
+    /// Check if a process is whitelisted. Matches exact name or process name that
+    /// starts with a whitelist entry (e.g. "python" matches "python3", "python3.10").
     fn is_process_whitelisted(&self, process_name: &str) -> bool {
-        self.detection_rules
-            .process_whitelist
-            .iter()
-            .any(|p| p.eq_ignore_ascii_case(process_name))
+        let name_lower = process_name.to_lowercase();
+        self.detection_rules.process_whitelist.iter().any(|entry| {
+            let entry_lower = entry.to_lowercase();
+            name_lower == entry_lower || name_lower.starts_with(&entry_lower)
+        })
     }
 
-    /// Detect crypto mining activity
+    /// Only skip detection if every record is whitelisted (user and process).
+    /// If any record was non-whitelisted or had a suspicious name, we do not skip.
+    fn all_records_whitelisted(&self, records: &[AuditRecord]) -> bool {
+        records.iter().all(|r| {
+            let user_ok = r
+                .user
+                .as_ref()
+                .map_or(true, |u| self.is_user_whitelisted(u));
+            let process_ok = r
+                .process_name
+                .as_ref()
+                .map_or(true, |p| self.is_process_whitelisted(p));
+            user_ok && process_ok
+        })
+    }
+
+    /// Compute name-based confidence for crypto miner detection (patterns + known miner names).
+    /// Returns (confidence, indicators, optional best record index).
+    fn crypto_name_confidence_from_records(
+        &self,
+        records: &[AuditRecord],
+    ) -> (f32, Vec<String>, Option<usize>) {
+        let mut indicators = Vec::new();
+        let mut pattern_matched = std::collections::HashSet::<String>::new();
+        let mut miner_matched = std::collections::HashSet::<String>::new();
+        let mut best_idx = None;
+        let mut best_score = 0.0f32;
+
+        for (idx, record) in records.iter().enumerate() {
+            let mut score = 0.0f32;
+            if let Some(process_name) = &record.process_name {
+                let process_name_lower = process_name.to_lowercase();
+                for pattern in &self.detection_rules.crypto_miner_patterns {
+                    if process_name_lower.contains(pattern) {
+                        if pattern_matched.insert(pattern.clone()) {
+                            indicators.push(format!("Process name contains '{}'", pattern));
+                            score += 0.3;
+                        }
+                    }
+                }
+                for miner_name in &self.detection_rules.suspicious_process_names {
+                    if process_name_lower.contains(miner_name) {
+                        if miner_matched.insert(miner_name.clone()) {
+                            indicators.push(format!("Known miner process: {}", miner_name));
+                            score += 0.5;
+                        }
+                    }
+                }
+            }
+            if score > best_score {
+                best_score = score;
+                best_idx = Some(idx);
+            }
+        }
+        let confidence = pattern_matched.len() as f32 * 0.3 + miner_matched.len() as f32 * 0.5;
+        (confidence, indicators, best_idx)
+    }
+
+    /// Detect crypto mining activity. Evaluates all records so that evasion by
+    /// renaming to a whitelisted name or PID recycling does not hide prior rogue activity.
     fn detect_crypto_miner(&self, records: &[AuditRecord]) -> Option<CryptoMiner> {
         if records.is_empty() {
             return None;
         }
 
-        let record = &records[0]; // Use first record as representative
-
-        // Check whitelist first - skip detection for whitelisted users/processes
-        if let Some(user) = &record.user {
-            if self.is_user_whitelisted(user) {
-                debug!(
-                    "Skipping crypto miner detection for whitelisted user: {}",
-                    user
-                );
-                return None;
-            }
+        // Skip only if every record is whitelisted; if any record was non-whitelisted, run detection
+        if self.all_records_whitelisted(records) {
+            debug!("Skipping crypto miner detection: all records whitelisted");
+            return None;
         }
 
-        if let Some(process_name) = &record.process_name {
-            if self.is_process_whitelisted(process_name) {
-                debug!(
-                    "Skipping crypto miner detection for whitelisted process: {}",
-                    process_name
-                );
-                return None;
-            }
-        }
+        let (name_confidence, mut indicators, best_idx) =
+            self.crypto_name_confidence_from_records(records);
+        let mut confidence = name_confidence;
 
-        let mut indicators = Vec::new();
-        let mut confidence = 0.0;
+        // Use the most suspicious record (by name) for output, so we report the rogue name
+        let record = best_idx
+            .and_then(|i| records.get(i))
+            .unwrap_or(&records[0]);
 
-        // Check process name patterns
-        if let Some(process_name) = &record.process_name {
-            let process_name_lower = process_name.to_lowercase();
-            for pattern in &self.detection_rules.crypto_miner_patterns {
-                if process_name_lower.contains(pattern) {
-                    indicators.push(format!("Process name contains '{}'", pattern));
-                    confidence += 0.3;
-                }
-            }
-
-            // Check for known miner names
-            for miner_name in &self.detection_rules.suspicious_process_names {
-                if process_name_lower.contains(miner_name) {
-                    indicators.push(format!("Known miner process: {}", miner_name));
-                    confidence += 0.5;
-                }
-            }
-        }
-
-        // Check for high GPU utilization
+        // Check for high GPU utilization (aggregate over all records)
         if let Some(avg_util) = self.calculate_average_utilization(records) {
             if avg_util > self.detection_rules.max_utilization_pct {
                 indicators.push(format!("High GPU utilization: {:.1}%", avg_util));
@@ -342,7 +432,6 @@ impl RogueDetector {
         }
 
         if confidence >= self.detection_rules.min_confidence_threshold {
-            // Create a GpuProc from the AuditRecord for compatibility
             let process = GpuProc {
                 gpu_index: record.gpu_index,
                 pid: record.pid.unwrap_or(0),
@@ -354,6 +443,7 @@ impl RogueDetector {
                 used_mem_mb: record.memory_used_mb,
                 start_time: "unknown".to_string(),
                 container: record.container.clone(),
+                node_id: record.node_id.clone(),
             };
 
             Some(CryptoMiner {
@@ -367,47 +457,49 @@ impl RogueDetector {
         }
     }
 
-    /// Detect suspicious processes
+    /// Detect suspicious processes. Evaluates all records so that evasion by
+    /// renaming or PID recycling does not hide prior suspicious activity.
     fn detect_suspicious_process(&self, records: &[AuditRecord]) -> Option<SuspiciousProcess> {
         if records.is_empty() {
             return None;
         }
 
-        let record = &records[0];
-
-        // Check whitelist first - skip detection for whitelisted users/processes
-        if let Some(user) = &record.user {
-            if self.is_user_whitelisted(user) {
-                debug!(
-                    "Skipping suspicious process detection for whitelisted user: {}",
-                    user
-                );
-                return None;
-            }
-        }
-
-        if let Some(process_name) = &record.process_name {
-            if self.is_process_whitelisted(process_name) {
-                debug!(
-                    "Skipping suspicious process detection for whitelisted process: {}",
-                    process_name
-                );
-                return None;
-            }
+        if self.all_records_whitelisted(records) {
+            debug!("Skipping suspicious process detection: all records whitelisted");
+            return None;
         }
 
         let mut reasons = Vec::new();
         let mut confidence = 0.0;
+        let mut representative_idx = 0usize;
 
-        // Check for unusual process names
-        if let Some(process_name) = &record.process_name {
-            if self.is_unusual_process_name(process_name) {
-                reasons.push("Unusual process name pattern".to_string());
-                confidence += 0.3;
+        // Check if any record had unusual process name or unusual user
+        for (idx, record) in records.iter().enumerate() {
+            if let Some(process_name) = &record.process_name {
+                if self.is_unusual_process_name(process_name) {
+                    reasons.push("Unusual process name pattern".to_string());
+                    confidence += 0.3;
+                    representative_idx = idx;
+                    break;
+                }
+            }
+        }
+        for (idx, record) in records.iter().enumerate() {
+            if let Some(user) = &record.user {
+                if self.is_unusual_user(user) {
+                    reasons.push(format!("Unusual user: {}", user));
+                    confidence += 0.2;
+                    if representative_idx == 0 {
+                        representative_idx = idx;
+                    }
+                    break;
+                }
             }
         }
 
-        // Check for high resource usage
+        let representative = &records[representative_idx];
+
+        // Check for high resource usage (aggregate)
         if let Some(avg_util) = self.calculate_average_utilization(records) {
             if avg_util > self.detection_rules.max_utilization_pct {
                 reasons.push(format!("Excessive GPU utilization: {:.1}%", avg_util));
@@ -422,27 +514,22 @@ impl RogueDetector {
             }
         }
 
-        // Check for unusual user
-        if let Some(user) = &record.user {
-            if self.is_unusual_user(user) {
-                reasons.push(format!("Unusual user: {}", user));
-                confidence += 0.2;
-            }
-        }
-
         if confidence >= self.detection_rules.min_confidence_threshold {
-            // Create a GpuProc from the AuditRecord for compatibility
             let process = GpuProc {
-                gpu_index: record.gpu_index,
-                pid: record.pid.unwrap_or(0),
-                user: record.user.clone().unwrap_or_else(|| "unknown".to_string()),
-                proc_name: record
+                gpu_index: representative.gpu_index,
+                pid: representative.pid.unwrap_or(0),
+                user: representative
+                    .user
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
+                proc_name: representative
                     .process_name
                     .clone()
                     .unwrap_or_else(|| "unknown".to_string()),
-                used_mem_mb: record.memory_used_mb,
+                used_mem_mb: representative.memory_used_mb,
                 start_time: "unknown".to_string(),
-                container: record.container.clone(),
+                container: representative.container.clone(),
+                node_id: representative.node_id.clone(),
             };
 
             Some(SuspiciousProcess {
@@ -456,34 +543,18 @@ impl RogueDetector {
         }
     }
 
-    /// Detect resource abuse
+    /// Detect resource abuse. Only skips if all records are whitelisted.
     fn detect_resource_abuser(&self, records: &[AuditRecord]) -> Option<ResourceAbuser> {
         if records.is_empty() {
             return None;
         }
 
+        if self.all_records_whitelisted(records) {
+            debug!("Skipping resource abuser detection: all records whitelisted");
+            return None;
+        }
+
         let record = &records[0];
-
-        // Check whitelist first - skip detection for whitelisted users/processes
-        if let Some(user) = &record.user {
-            if self.is_user_whitelisted(user) {
-                debug!(
-                    "Skipping resource abuser detection for whitelisted user: {}",
-                    user
-                );
-                return None;
-            }
-        }
-
-        if let Some(process_name) = &record.process_name {
-            if self.is_process_whitelisted(process_name) {
-                debug!(
-                    "Skipping resource abuser detection for whitelisted process: {}",
-                    process_name
-                );
-                return None;
-            }
-        }
 
         let mut abuse_type = AbuseType::MemoryHog;
         let mut severity = 0.0;
@@ -536,6 +607,7 @@ impl RogueDetector {
                 used_mem_mb: record.memory_used_mb,
                 start_time: "unknown".to_string(),
                 container: record.container.clone(),
+                node_id: record.node_id.clone(),
             };
 
             Some(ResourceAbuser {
@@ -749,12 +821,14 @@ mod tests {
         assert!(!detector.is_user_whitelisted("hacker"));
         assert!(!detector.is_user_whitelisted("unknown_user"));
 
-        // Test process whitelist checking
+        // Test process whitelist checking (prefix match: "python" matches "python3", etc.)
         assert!(detector.is_process_whitelisted("python"));
-        assert!(!detector.is_process_whitelisted("python3.10"));
-        assert!(!detector.is_process_whitelisted("jupyter-notebook"));
-        assert!(!detector.is_process_whitelisted("tensorflow_training"));
-        assert!(!detector.is_process_whitelisted("pytorch_model"));
+        assert!(detector.is_process_whitelisted("python3"));
+        assert!(detector.is_process_whitelisted("python3.10"));
+        assert!(detector.is_process_whitelisted("jupyter-notebook"));
+        assert!(detector.is_process_whitelisted("tensorflow_training"));
+        assert!(detector.is_process_whitelisted("pytorch_model"));
+        assert!(detector.is_process_whitelisted("nvidia-smi"));
         assert!(!detector.is_process_whitelisted("xmrig"));
         assert!(!detector.is_process_whitelisted("suspicious_miner"));
     }
@@ -787,6 +861,7 @@ mod tests {
                 temperature_c: 70,
                 power_w: 150.0,
                 container: None,
+                node_id: None,
             },
             AuditRecord {
                 id: 2,
@@ -801,6 +876,7 @@ mod tests {
                 temperature_c: 70,
                 power_w: 150.0,
                 container: None,
+                node_id: None,
             },
         ];
 
@@ -812,6 +888,65 @@ mod tests {
             .iter()
             .all(|entry| !entry.contains("High GPU utilization")
                 && !entry.contains("High memory usage")));
+    }
+
+    #[tokio::test]
+    async fn test_crypto_miner_detection_evaluates_all_records_not_just_newest() {
+        // Evasion: newest record is "python3" but older records show "xmrig" — should still detect
+        use crate::audit::AuditRecord;
+        use chrono::Utc;
+
+        let rules = DetectionRules {
+            min_confidence_threshold: 0.5,
+            ..DetectionRules::default()
+        };
+        let detector = RogueDetector::with_rules(AuditManager::new().await.unwrap(), rules);
+
+        let now = Utc::now();
+        let records = vec![
+            AuditRecord {
+                id: 1,
+                timestamp: now - chrono::Duration::minutes(10),
+                gpu_index: 0,
+                gpu_name: "Test GPU".to_string(),
+                pid: Some(1234),
+                user: Some("attacker".to_string()),
+                process_name: Some("xmrig".to_string()),
+                memory_used_mb: 1024,
+                utilization_pct: 0.0,
+                temperature_c: 70,
+                power_w: 150.0,
+                container: None,
+                node_id: None,
+            },
+            AuditRecord {
+                id: 2,
+                timestamp: now,
+                gpu_index: 0,
+                gpu_name: "Test GPU".to_string(),
+                pid: Some(1234),
+                user: Some("attacker".to_string()),
+                process_name: Some("python3".to_string()), // renamed to evade
+                memory_used_mb: 1024,
+                utilization_pct: 0.0,
+                temperature_c: 70,
+                power_w: 150.0,
+                container: None,
+                node_id: None,
+            },
+        ];
+
+        let miner = detector
+            .detect_crypto_miner(&records)
+            .expect("Should detect miner from history even though newest record is python3");
+        assert!(
+            miner.mining_indicators.iter().any(|s| s.contains("xmrig")),
+            "Indicators should mention xmrig from history"
+        );
+        assert!(
+            miner.process.proc_name == "xmrig",
+            "Representative record should be the suspicious one (xmrig), not python3"
+        );
     }
 
     #[tokio::test]
@@ -841,6 +976,7 @@ mod tests {
                 temperature_c: 70,
                 power_w: 150.0,
                 container: None,
+                node_id: None,
             },
             AuditRecord {
                 id: 2,
@@ -855,6 +991,7 @@ mod tests {
                 temperature_c: 70,
                 power_w: 150.0,
                 container: None,
+                node_id: None,
             },
         ];
 

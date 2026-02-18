@@ -2,7 +2,7 @@ use crate::nvml_api::GpuProc;
 use crate::proc::ProcessManager;
 use anyhow::Result;
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use sysinfo::{Pid as SysPid, System};
 
 /// Enhanced process management with filtering and batch operations
@@ -118,7 +118,8 @@ impl EnhancedProcessManager {
         Ok(())
     }
 
-    /// Batch kill processes matching a pattern
+    /// Batch kill processes. Deduplicates by PID so a process using multiple GPUs
+    /// is only killed once (otherwise the first kill succeeds and later attempts fail with ESRCH).
     pub fn batch_kill_processes(
         &mut self,
         processes: &[GpuProc],
@@ -127,8 +128,11 @@ impl EnhancedProcessManager {
     ) -> Result<Vec<u32>> {
         let mut killed_pids = Vec::new();
         let mut failed_pids = Vec::new();
-
+        let mut seen_pids = HashSet::new();
         for proc in processes {
+            if !seen_pids.insert(proc.pid) {
+                continue;
+            }
             match self
                 .process_manager
                 .graceful_kill(proc.pid, timeout_secs, force)
@@ -226,12 +230,13 @@ impl EnhancedProcessManager {
         Ok(processes)
     }
 
-    /// Get process statistics
+    /// Get process statistics. Counts unique PIDs so multi-GPU processes are not double-counted.
     pub fn get_process_stats(&mut self, processes: &[GpuProc]) -> ProcessStats {
         let mut stats = ProcessStats::default();
+        let mut seen_pids = HashSet::new();
 
         for proc in processes {
-            stats.total_processes += 1;
+            seen_pids.insert(proc.pid);
             stats.total_memory_mb += proc.used_mem_mb;
 
             // Count by user
@@ -251,6 +256,7 @@ impl EnhancedProcessManager {
             }
         }
 
+        stats.total_processes = seen_pids.len();
         stats
     }
 }
@@ -316,6 +322,7 @@ mod tests {
             used_mem_mb: memory,
             start_time: "1h".to_string(),
             container: None,
+            node_id: None,
         }
     }
 

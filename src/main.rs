@@ -146,27 +146,21 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
         )
         .await
     } else if cli.server {
-        execute_server_operation(cli.server_host.clone(), cli.server_port, gpu_manager).await?;
-        // Optionally open browser
+        let host = cli.server_host.clone();
+        let port = cli.server_port;
         if cli.open {
-            #[cfg(target_os = "macos")]
-            {
-                let _ = std::process::Command::new("open")
-                    .arg(format!("http://localhost:{}", 3000))
-                    .status();
-            }
-            #[cfg(target_os = "linux")]
-            {
-                let _ = std::process::Command::new("xdg-open")
-                    .arg(format!("http://localhost:{}", 3000))
-                    .status();
-            }
-            #[cfg(target_os = "windows")]
-            {
-                let _ = std::process::Command::new("cmd")
-                    .args(["/C", "start", "", "http://localhost:3000"])
-                    .status();
-            }
+            // Spawn server so we can open the browser once it is listening (instead of blocking forever)
+            let server_handle = tokio::spawn(async move {
+                execute_server_operation(host, port, gpu_manager).await
+            });
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            open_browser_at_port(port);
+            server_handle
+                .await
+                .context("Server task panicked")?
+                .context("Server exited with error")?;
+        } else {
+            execute_server_operation(host, port, gpu_manager).await?;
         }
         Ok(())
     } else if cli.guard {
@@ -226,17 +220,21 @@ async fn execute_single_list(
     // Get all processes
     let mut procs = gpu_manager.get_all_processes()?;
 
-    // Enrich with container information if requested
+    // Enrich with container information if requested (uses sysinfo; NVML not required)
     if containers {
-        // Create a temporary process manager for enrichment
-        let nvml_api = NvmlApi::new().unwrap_or_else(|_| {
-            // Create a dummy NVML API for container detection
-            // This is a workaround since we need ProcessManager for enrichment
-            NvmlApi::new().unwrap()
-        });
-        let proc_manager = ProcessManager::new(nvml_api);
-        let mut enhanced_manager = EnhancedProcessManager::new(proc_manager);
-        procs = enhanced_manager.enrich_with_containers(procs)?;
+        match NvmlApi::new() {
+            Ok(nvml_api) => {
+                let proc_manager = ProcessManager::new(nvml_api);
+                let mut enhanced_manager = EnhancedProcessManager::new(proc_manager);
+                procs = enhanced_manager.enrich_with_containers(procs)?;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Skipping container enrichment: NVML unavailable ({}). Container names will not be shown.",
+                    e
+                );
+            }
+        }
     }
 
     // Create snapshot for rendering
@@ -1014,6 +1012,25 @@ async fn execute_audit_operation(
     }
 
     Ok(())
+}
+
+/// Open the default browser to http://localhost:{port} (used for --server --open).
+fn open_browser_at_port(port: u16) {
+    let url = format!("http://localhost:{}", port);
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(&url).status();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(&url).status();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .status();
+    }
 }
 
 /// Execute server operation

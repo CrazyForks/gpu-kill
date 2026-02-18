@@ -207,6 +207,7 @@ impl GpuVendorInterface for NvidiaVendor {
                     used_mem_mb: used_gpu_memory_mb(p),
                     start_time: "unknown".to_string(),
                     container: None,
+                    node_id: None,
                 };
                 enrich_gpu_proc(&mut proc);
                 proc
@@ -261,6 +262,7 @@ impl GpuVendorInterface for NvidiaVendor {
                 },
                 start_time: "unknown".to_string(),
                 container: None,
+                node_id: None,
             });
         }
 
@@ -977,6 +979,7 @@ impl GpuVendorInterface for AppleVendor {
                             used_mem_mb: mem_mb,
                             start_time: "unknown".to_string(), // Would need more complex parsing
                             container: None,
+                            node_id: None,
                         });
                     }
                 }
@@ -1356,6 +1359,7 @@ mod tests {
                     used_mem_mb: 64,
                     start_time: "unknown".to_string(),
                     container: None,
+                    node_id: None,
                 }),
             })
         }
@@ -1369,6 +1373,7 @@ mod tests {
                 used_mem_mb: 32,
                 start_time: "unknown".to_string(),
                 container: None,
+                node_id: None,
             }])
         }
 

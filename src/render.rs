@@ -257,6 +257,7 @@ mod tests {
                     used_mem_mb: 1024,
                     start_time: "1h 30m".to_string(),
                     container: None,
+                    node_id: None,
                 }),
             }],
             procs: vec![GpuProc {
@@ -267,6 +268,7 @@ mod tests {
                 used_mem_mb: 1024,
                 start_time: "1h 30m".to_string(),
                 container: None,
+                node_id: None,
             }],
         }
     }

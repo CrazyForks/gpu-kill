@@ -27,6 +27,9 @@ pub struct GpuProc {
     pub used_mem_mb: u32,
     pub start_time: String,
     pub container: Option<String>,
+    /// When set, process is on this cluster node (from cluster rogue analysis).
+    #[serde(default)]
+    pub node_id: Option<String>,
 }
 
 /// GPU snapshot with current status
@@ -165,6 +168,7 @@ impl NvmlApi {
                     used_mem_mb: used_gpu_memory_mb(p),
                     start_time: "unknown".to_string(), // Will be filled by process info
                     container: None,
+                    node_id: None,
                 };
                 enrich_gpu_proc(&mut proc);
                 proc
@@ -236,6 +240,7 @@ impl NvmlApi {
                     },
                     start_time: "unknown".to_string(), // Will be filled by process info
                     container: None,
+                    node_id: None,
                 });
             }
         }

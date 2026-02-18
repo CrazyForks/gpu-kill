@@ -1416,24 +1416,31 @@ fn is_time_window_active(
     end_time: &str,
     days_of_week: &[u8],
 ) -> bool {
-    if let (Ok(start), Ok(end)) = (
+    let (start, end) = match (
         chrono::NaiveTime::parse_from_str(start_time, "%H:%M"),
         chrono::NaiveTime::parse_from_str(end_time, "%H:%M"),
     ) {
-        let weekday = now.weekday().num_days_from_sunday() as u8;
-        let day_match = days_of_week.is_empty() || days_of_week.contains(&weekday);
-        if !day_match {
-            return false;
-        }
+        (Ok(s), Ok(e)) => (s, e),
+        _ => return false,
+    };
 
-        let now_time = now.time();
-        if start <= end {
-            now_time >= start && now_time <= end
-        } else {
-            now_time >= start || now_time <= end
-        }
+    let weekday = now.weekday().num_days_from_sunday() as u8;
+    let now_time = now.time();
+
+    if start <= end {
+        // Same-day window: current day must be in list and time in [start, end]
+        let day_match = days_of_week.is_empty() || days_of_week.contains(&weekday);
+        day_match && now_time >= start && now_time <= end
     } else {
-        false
+        // Midnight-crossing window: after start we're on "window start" day; before end we're on "window end" (next calendar) day = previous weekday
+        if now_time >= start {
+            days_of_week.is_empty() || days_of_week.contains(&weekday)
+        } else if now_time <= end {
+            let previous_day = if weekday == 0 { 6 } else { weekday - 1 };
+            days_of_week.is_empty() || days_of_week.contains(&previous_day)
+        } else {
+            false
+        }
     }
 }
 
@@ -1535,6 +1542,7 @@ mod tests {
             used_mem_mb: 512,
             start_time: "unknown".to_string(),
             container: None,
+            node_id: None,
         }];
 
         let result = manager.check_policies(&processes).unwrap();
@@ -1542,5 +1550,28 @@ mod tests {
             .violations
             .iter()
             .any(|v| matches!(v.violation_type, ViolationType::UnauthorizedUserAccess)));
+    }
+
+    #[test]
+    fn test_midnight_crossing_day_match_bug() {
+        use chrono::TimeZone;
+        // Friday night window: 22:00 to 02:00 (Saturday morning)
+        let start = "22:00";
+        let end = "02:00";
+        let days = vec![5u8]; // Friday (0=Sun, ..., 5=Fri, 6=Sat)
+
+        // Friday 23:00 - correctly matches
+        let fri_23 = Utc.with_ymd_and_hms(2026, 2, 20, 23, 0, 0).unwrap();
+        assert!(
+            super::is_time_window_active(fri_23, start, end, &days),
+            "Should be active on Friday night"
+        );
+
+        // Saturday 01:00 - should match (continuation of Friday night window)
+        let sat_01 = Utc.with_ymd_and_hms(2026, 2, 21, 1, 0, 0).unwrap();
+        assert!(
+            super::is_time_window_active(sat_01, start, end, &days),
+            "Should be active on Saturday morning (Friday window)"
+        );
     }
 }

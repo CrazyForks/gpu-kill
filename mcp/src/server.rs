@@ -139,9 +139,13 @@ impl GpuKillMCPServer {
         Ok(json!({ "content": result.content, "isError": result.is_error }))
     }
 
-    /// Start the MCP server
-    pub async fn start(self, port: u16) -> Result<()> {
-        info!("Starting GPU Kill MCP Server on port {}", port);
+    /// Start the MCP server.
+    ///
+    /// Binds to `host:port`. Use `127.0.0.1` for local-only access (default).
+    /// Use `0.0.0.0` only when you need remote access and have other protections (e.g. auth, firewall).
+    pub async fn start(self, host: &str, port: u16) -> Result<()> {
+        let bind_addr = format!("{}:{}", host, port);
+        info!("Starting GPU Kill MCP Server on {}", bind_addr);
 
         let server = Arc::new(self);
 
@@ -171,8 +175,8 @@ impl GpuKillMCPServer {
             )
             .route("/health", axum::routing::get(|| async { "OK" }));
 
-        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
-        info!("MCP Server listening on http://0.0.0.0:{}", port);
+        let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
+        info!("MCP Server listening on http://{}", bind_addr);
 
         axum::serve(listener, app).await?;
         Ok(())

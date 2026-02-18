@@ -61,6 +61,20 @@ impl SshRemote {
         Self { config }
     }
 
+    /// Execute a command on the remote host and return raw output (for callers that need exit code).
+    fn execute_command_output(&self, command: &str) -> Result<std::process::Output> {
+        debug!("Executing remote command: {}", command);
+        let timeout_secs = self.config.timeout.as_secs();
+        let host_spec = format!("{}@{}", self.config.username, self.config.host);
+
+        let output = if let Some(password) = &self.config.password {
+            self.execute_with_sshpass(command, password, &host_spec, timeout_secs)?
+        } else {
+            self.execute_with_ssh(command, &host_spec, timeout_secs)?
+        };
+        Ok(output)
+    }
+
     /// Execute a command on the remote host
     ///
     /// # Authentication
@@ -68,18 +82,7 @@ impl SshRemote {
     /// - Password authentication requires `sshpass` to be installed on the system,
     ///   as SSH requires a TTY for interactive password prompts
     pub fn execute_command(&self, command: &str) -> Result<String> {
-        debug!("Executing remote command: {}", command);
-
-        // Build SSH options that are common to both sshpass and direct SSH
-        let timeout_secs = self.config.timeout.as_secs();
-        let host_spec = format!("{}@{}", self.config.username, self.config.host);
-
-        // If password is provided, use sshpass (SSH requires TTY for password prompts)
-        let output = if let Some(password) = &self.config.password {
-            self.execute_with_sshpass(command, password, &host_spec, timeout_secs)?
-        } else {
-            self.execute_with_ssh(command, &host_spec, timeout_secs)?
-        };
+        let output = self.execute_command_output(command)?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -92,7 +95,6 @@ impl SshRemote {
 
         let stdout = String::from_utf8(output.stdout)
             .context("Failed to decode SSH command output as UTF-8")?;
-
         debug!(
             "Command executed successfully, output length: {} bytes",
             stdout.len()
@@ -199,6 +201,116 @@ impl SshRemote {
             .context("Failed to execute SSH command")
     }
 
+    /// Execute command via SSH and stream stdout/stderr to the local process (for long-running commands like --watch).
+    fn execute_with_ssh_streaming(
+        &self,
+        command: &str,
+        host_spec: &str,
+        timeout_secs: u64,
+    ) -> Result<std::process::ExitStatus> {
+        let mut ssh_cmd = Command::new("ssh");
+        ssh_cmd
+            .arg("-o")
+            .arg(format!("ConnectTimeout={}", timeout_secs))
+            .arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null")
+            .arg("-o")
+            .arg("LogLevel=ERROR");
+
+        if self.config.port != 22 {
+            ssh_cmd.arg("-p").arg(self.config.port.to_string());
+        }
+        if let Some(key_path) = &self.config.key_path {
+            ssh_cmd.arg("-i").arg(key_path);
+        }
+        ssh_cmd.arg(host_spec).arg(command);
+
+        let mut child = ssh_cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null())
+            .spawn()
+            .context("Failed to spawn SSH command")?;
+
+        let mut stdout = child.stdout.take().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+        let mut local_stdout = std::io::stdout();
+        let mut local_stderr = std::io::stderr();
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let _ = std::io::copy(&mut stdout, &mut local_stdout);
+            });
+            s.spawn(|| {
+                let _ = std::io::copy(&mut stderr, &mut local_stderr);
+            });
+        });
+        child.wait().context("Failed to wait for SSH command")
+    }
+
+    /// Execute command via sshpass and stream stdout/stderr to the local process.
+    fn execute_with_sshpass_streaming(
+        &self,
+        command: &str,
+        password: &str,
+        host_spec: &str,
+        timeout_secs: u64,
+    ) -> Result<std::process::ExitStatus> {
+        let mut cmd = Command::new("sshpass");
+        cmd.arg("-p").arg(password).arg("ssh");
+        cmd.arg("-o")
+            .arg(format!("ConnectTimeout={}", timeout_secs))
+            .arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null")
+            .arg("-o")
+            .arg("LogLevel=ERROR")
+            .arg("-o")
+            .arg("PasswordAuthentication=yes")
+            .arg("-o")
+            .arg("PubkeyAuthentication=no");
+        if self.config.port != 22 {
+            cmd.arg("-p").arg(self.config.port.to_string());
+        }
+        cmd.arg(host_spec).arg(command);
+
+        let mut child = cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null())
+            .spawn()
+            .context("Failed to spawn sshpass command")?;
+
+        let mut stdout = child.stdout.take().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+        let mut local_stdout = std::io::stdout();
+        let mut local_stderr = std::io::stderr();
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let _ = std::io::copy(&mut stdout, &mut local_stdout);
+            });
+            s.spawn(|| {
+                let _ = std::io::copy(&mut stderr, &mut local_stderr);
+            });
+        });
+        child.wait().context("Failed to wait for sshpass command")
+    }
+
+    /// Execute a command on the remote host and stream output to local stdout/stderr.
+    /// Use this for long-running commands (e.g. --watch) so the process does not hang.
+    fn execute_command_streaming(&self, command: &str) -> Result<std::process::ExitStatus> {
+        let timeout_secs = self.config.timeout.as_secs();
+        let host_spec = format!("{}@{}", self.config.username, self.config.host);
+
+        if let Some(password) = &self.config.password {
+            self.execute_with_sshpass_streaming(command, password, &host_spec, timeout_secs)
+        } else {
+            self.execute_with_ssh_streaming(command, &host_spec, timeout_secs)
+        }
+    }
+
     /// Execute gpukill command on remote host
     ///
     /// # Security
@@ -206,33 +318,54 @@ impl SshRemote {
     /// User-controlled input (e.g., --filter, --audit-user, --audit-process) is safely
     /// quoted before being passed to the remote shell.
     pub fn execute_gpukill(&self, args: &[String]) -> Result<String> {
-        // Escape each argument for Unix shells to prevent injection on remote hosts
-        // This prevents attacks like: --filter "python; rm -rf /"
+        let command = self.build_gpukill_command(args);
+        self.execute_command(&command)
+    }
+
+    /// Execute gpukill on remote host and stream output to local stdout/stderr.
+    /// Use for long-running commands (e.g. --watch) so the caller does not hang.
+    pub fn execute_gpukill_streaming(&self, args: &[String]) -> Result<std::process::ExitStatus> {
+        let command = self.build_gpukill_command(args);
+        self.execute_command_streaming(&command)
+    }
+
+    fn build_gpukill_command(&self, args: &[String]) -> String {
         let escaped_args: Vec<Cow<str>> = args
             .iter()
             .map(|arg| unix_escape(Cow::Borrowed(arg.as_str())))
             .collect();
-        let command = format!("gpukill {}", escaped_args.join(" "));
-        self.execute_command(&command)
+        format!("gpukill {}", escaped_args.join(" "))
     }
 
-    /// Check if gpukill is available on remote host
+    /// Check if gpukill is available on remote host.
+    /// Returns the underlying error for connection/auth failures instead of falsely
+    /// reporting "gpukill not available".
     pub fn check_gpukill_availability(&self) -> Result<bool> {
-        match self.execute_command("which gpukill") {
-            Ok(output) => {
-                let available = !output.trim().is_empty();
-                if available {
-                    info!("gpukill is available on remote host");
-                } else {
-                    warn!("gpukill not found on remote host");
-                }
-                Ok(available)
+        let output = self.execute_command_output("which gpukill")?;
+        let code = output.status.code();
+        let stdout_trim = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        if output.status.success() {
+            let available = !stdout_trim.is_empty();
+            if available {
+                info!("gpukill is available on remote host");
+            } else {
+                warn!("gpukill not found on remote host");
             }
-            Err(_) => {
-                warn!("Failed to check gpukill availability on remote host");
-                Ok(false)
-            }
+            return Ok(available);
         }
+        // which exits with 1 when command not found; that is the only case we treat as "not available"
+        if code == Some(1) {
+            warn!("gpukill not found on remote host (which returned 1)");
+            return Ok(false);
+        }
+        // Any other exit code or failure (e.g. SSH connection/auth error) is propagated
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(anyhow::anyhow!(
+            "SSH command failed with exit code {}: {}",
+            code.unwrap_or(-1),
+            stderr
+        ))
     }
 
     /// Get remote host information
@@ -258,11 +391,12 @@ pub struct RemoteHostInfo {
     pub gpu_info: String,
 }
 
-/// Execute a local gpukill command with remote forwarding
+/// Execute a local gpukill command with remote forwarding.
+/// When `local_args` contains `--watch`, streams output instead of buffering so the process does not hang.
 pub fn execute_remote_operation(config: SshConfig, local_args: &[String]) -> Result<()> {
     let remote = SshRemote::new(config);
 
-    // Check if gpukill is available on remote host
+    // Check if gpukill is available on remote host (propagates connection/auth errors)
     if !remote.check_gpukill_availability()? {
         return Err(anyhow::anyhow!(
             "gpukill is not available on the remote host. Please install gpukill on the remote host first."
@@ -276,11 +410,20 @@ pub fn execute_remote_operation(config: SshConfig, local_args: &[String]) -> Res
         host_info.hostname, host_info.os_info
     );
 
-    // Execute the command on remote host
-    let output = remote.execute_gpukill(local_args)?;
-
-    // Print the output
-    print!("{}", output);
+    let watch_mode = local_args.iter().any(|a| a == "--watch");
+    if watch_mode {
+        // Stream output so long-running --watch does not hang
+        let status = remote.execute_gpukill_streaming(local_args)?;
+        if !status.success() {
+            return Err(anyhow::anyhow!(
+                "Remote gpukill exited with code {:?}",
+                status.code()
+            ));
+        }
+    } else {
+        let output = remote.execute_gpukill(local_args)?;
+        print!("{}", output);
+    }
 
     Ok(())
 }

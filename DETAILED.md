@@ -963,6 +963,7 @@ Kill all processes matching a name pattern:
 
 The MCP server can be configured using environment variables:
 
+- **MCP_HOST** - Bind address (default: 127.0.0.1). Use 127.0.0.1 for local-only access. Set to 0.0.0.0 only if you need remote access and have other protections (e.g. firewall, auth).
 - **MCP_PORT** - Port to listen on (default: 3001)
 - **RUST_LOG** - Logging level (default: info)
 

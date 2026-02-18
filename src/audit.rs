@@ -21,6 +21,9 @@ pub struct AuditRecord {
     pub temperature_c: i32,
     pub power_w: f32,
     pub container: Option<String>,
+    /// When set, record is from a cluster node; used to group by (node_id, pid).
+    #[serde(default)]
+    pub node_id: Option<String>,
 }
 
 /// Audit summary statistics
@@ -92,15 +95,21 @@ impl AuditManager {
                 temperature_c: snapshot.temp_c,
                 power_w: snapshot.power_w,
                 container: None,
+                node_id: None,
             };
 
             records.push(gpu_record);
 
-            // Log process-level information
-            for process in processes
+            // Log process-level information. Attribute GPU utilization proportionally
+            // across processes on this GPU so RogueDetector heuristics are effective.
+            let gpu_processes: Vec<_> = processes
                 .iter()
                 .filter(|p| p.gpu_index == snapshot.gpu_index)
-            {
+                .collect();
+            let process_count = gpu_processes.len().max(1);
+            let util_per_process = snapshot.util_pct / process_count as f32;
+
+            for process in gpu_processes {
                 let process_record = AuditRecord {
                     id: timestamp.timestamp_millis() + process.pid as i64, // Use timestamp + PID as ID
                     timestamp,
@@ -110,10 +119,11 @@ impl AuditManager {
                     user: Some(process.user.clone()),
                     process_name: Some(process.proc_name.clone()),
                     memory_used_mb: process.used_mem_mb,
-                    utilization_pct: 0.0, // Process-level utilization not available
+                    utilization_pct: util_per_process,
                     temperature_c: 0,     // Process-level temperature not available
                     power_w: 0.0,         // Process-level power not available
                     container: process.container.clone(),
+                    node_id: None,
                 };
 
                 records.push(process_record);
