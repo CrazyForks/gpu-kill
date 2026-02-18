@@ -120,8 +120,8 @@ impl AuditManager {
                     process_name: Some(process.proc_name.clone()),
                     memory_used_mb: process.used_mem_mb,
                     utilization_pct: util_per_process,
-                    temperature_c: 0,     // Process-level temperature not available
-                    power_w: 0.0,         // Process-level power not available
+                    temperature_c: 0, // Process-level temperature not available
+                    power_w: 0.0,     // Process-level power not available
                     container: process.container.clone(),
                     node_id: None,
                 };

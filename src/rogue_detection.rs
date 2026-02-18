@@ -240,7 +240,10 @@ impl RogueDetector {
         &self,
         records: Vec<AuditRecord>,
     ) -> Result<RogueDetectionResult> {
-        debug!("Analyzing {} audit records (cluster or ad-hoc)", records.len());
+        debug!(
+            "Analyzing {} audit records (cluster or ad-hoc)",
+            records.len()
+        );
 
         let mut suspicious_processes = Vec::new();
         let mut crypto_miners = Vec::new();
@@ -331,10 +334,7 @@ impl RogueDetector {
     /// If any record was non-whitelisted or had a suspicious name, we do not skip.
     fn all_records_whitelisted(&self, records: &[AuditRecord]) -> bool {
         records.iter().all(|r| {
-            let user_ok = r
-                .user
-                .as_ref()
-                .is_none_or(|u| self.is_user_whitelisted(u));
+            let user_ok = r.user.as_ref().is_none_or(|u| self.is_user_whitelisted(u));
             let process_ok = r
                 .process_name
                 .as_ref()
@@ -403,9 +403,7 @@ impl RogueDetector {
         let mut confidence = name_confidence;
 
         // Use the most suspicious record (by name) for output, so we report the rogue name
-        let record = best_idx
-            .and_then(|i| records.get(i))
-            .unwrap_or(&records[0]);
+        let record = best_idx.and_then(|i| records.get(i)).unwrap_or(&records[0]);
 
         // Check for high GPU utilization (aggregate over all records)
         if let Some(avg_util) = self.calculate_average_utilization(records) {

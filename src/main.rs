@@ -150,9 +150,10 @@ async fn execute_operation(cli: Cli, config_manager: crate::config::ConfigManage
         let port = cli.server_port;
         if cli.open {
             // Spawn server so we can open the browser once it is listening (instead of blocking forever)
-            let server_handle = tokio::spawn(async move {
-                execute_server_operation(host, port, gpu_manager).await
-            });
+            let server_handle =
+                tokio::spawn(
+                    async move { execute_server_operation(host, port, gpu_manager).await },
+                );
             tokio::time::sleep(Duration::from_millis(500)).await;
             open_browser_at_port(port);
             server_handle

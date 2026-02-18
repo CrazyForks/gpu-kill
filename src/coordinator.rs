@@ -440,7 +440,9 @@ async fn get_contention_analysis(
 
 /// Convert cluster node snapshots into audit records for rogue detection.
 /// Each process becomes one record; utilization is attributed from the GPU (proportional share).
-pub(crate) fn snapshots_to_audit_records(snapshots: &[NodeSnapshot]) -> Vec<crate::audit::AuditRecord> {
+pub(crate) fn snapshots_to_audit_records(
+    snapshots: &[NodeSnapshot],
+) -> Vec<crate::audit::AuditRecord> {
     use crate::audit::AuditRecord;
 
     let mut records = Vec::new();
@@ -468,7 +470,9 @@ pub(crate) fn snapshots_to_audit_records(snapshots: &[NodeSnapshot]) -> Vec<crat
                 .map(|g| g.util_pct / process_count as f32)
                 .unwrap_or(0.0);
 
-            let id = timestamp.timestamp_millis().wrapping_add(process.pid as i64);
+            let id = timestamp
+                .timestamp_millis()
+                .wrapping_add(process.pid as i64);
             records.push(AuditRecord {
                 id,
                 timestamp,
@@ -1222,7 +1226,7 @@ mod tests {
     #[tokio::test]
     async fn test_rogue_analysis_uses_cluster_snapshots() {
         use crate::audit::AuditManager;
-        use crate::rogue_detection::{RogueDetector, DetectionRules};
+        use crate::rogue_detection::{DetectionRules, RogueDetector};
         use crate::vendor::GpuVendor;
 
         // Node snapshot with a clear crypto miner (xmrig at 99% GPU util)
